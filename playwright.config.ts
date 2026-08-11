@@ -1,27 +1,36 @@
 import { defineConfig, devices } from "@playwright/test";
+import { loadEnv } from "./tests/e2e/helpers/env";
 
 /**
- * Playwright end-to-end config.
+ * Playwright end-to-end config (Phase 2 adversarial auth/RBAC suite).
  *
- * Phase 2 onward adds adversarial security e2e tests (403 on cross-role
- * access, direct server-action rejection, lockout, session timeout).
- * `webServer` is intentionally left out in Phase 0 so `pnpm test:e2e`
- * does not require a running app before any test exists.
+ * Runs a dedicated dev server on port 3100 (so it does not collide with a preview on
+ * 3000) with a deterministic dev-only OTP so the 2FA path is testable. `.env` is loaded
+ * here so the Prisma-based fixtures and the dev server share the same database.
  */
+loadEnv();
+process.env.E2E_FIXED_OTP = process.env.E2E_FIXED_OTP ?? "000000";
+
+const PORT = 3100;
+const BASE_URL = `http://localhost:${PORT}`;
+
 export default defineConfig({
   testDir: "./tests/e2e",
-  fullyParallel: true,
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  reporter: "html",
+  reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: process.env.APP_URL ?? "http://localhost:3000",
+    baseURL: BASE_URL,
     trace: "on-first-retry",
   },
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-  ],
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  webServer: {
+    command: `pnpm exec next dev --port ${PORT}`,
+    url: `${BASE_URL}/login`,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+    env: { E2E_FIXED_OTP: process.env.E2E_FIXED_OTP },
+  },
 });

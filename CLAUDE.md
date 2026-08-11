@@ -228,7 +228,7 @@ Update this checklist at the end of every phase.
 
 - [x] **Phase 0** — Foundation & Project Constitution
 - [x] **Phase 1** — Data Model, Money & Audit Core
-- [ ] **Phase 2** — Auth, RBAC & Security Baseline
+- [x] **Phase 2** — Auth, RBAC & Security Baseline
 - [ ] **Phase 3** — Pricing Master & Fee Engine
 - [ ] **Phase 4** — Sales: Leads & Basic Details
 - [ ] **Phase 5** — Automatic Payment Draft Generator
