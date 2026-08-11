@@ -1,0 +1,13 @@
+# Approve post-install build scripts for trusted dependencies only.
+# pnpm blocks lifecycle scripts by default; these are required for the toolchain
+# (Prisma engines / client generation, esbuild native binary for Vitest & tsx).
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - esbuild

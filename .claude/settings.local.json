@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm -v)",
+      "Bash(docker -v)",
+      "Bash(git --version)",
+      "Bash(python3 -c \"import pypdf; print\\('pypdf ok'\\)\")",
+      "Bash(python3 -c \"import pdfplumber; print\\('pdfplumber ok'\\)\")",
+      "Bash(python3 -c \"import fitz; print\\('pymupdf ok'\\)\")",
+      "Bash(cd \"/private/tmp/claude-501/-Users-strephin-Downloads-Payment-Automation-Tool-/ab346bc3-00f1-492f-9db5-dffef7e8cf72/scratchpad\" && grep -n \"2.2\\\\|Permission\\\\|Access Control\\\\|RBAC\\\\|Matrix\\\\|Role\" frd.txt | head -40)",
+      "Bash(npm -v)",
+      "Bash(npm ls *)"
+    ]
+  }
+}

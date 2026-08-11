@@ -1,0 +1,52 @@
+# Local development infrastructure for ProITbridge.
+# Postgres 16 (application database) + MinIO (S3-compatible payment-proof storage).
+#
+#   pnpm db:up      -> start postgres + minio
+#   pnpm db:down    -> stop and remove containers (named volumes persist)
+#
+# Credentials here are LOCAL DEV ONLY and must never be reused in any
+# deployed environment (FR-SEC-12). Real secrets live in an uncommitted .env.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: proitbridge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: proitbridge
+      POSTGRES_PASSWORD: proitbridge_local_dev
+      POSTGRES_DB: proitbridge
+    ports:
+      - "5432:5432"
+    volumes:
+      - proitbridge_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proitbridge -d proitbridge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: proitbridge-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: proitbridge
+      MINIO_ROOT_PASSWORD: proitbridge_local_dev
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Web console
+    volumes:
+      - proitbridge_minio:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  proitbridge_pgdata:
+    name: proitbridge_pgdata
+  proitbridge_minio:
+    name: proitbridge_minio
