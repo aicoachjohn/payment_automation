@@ -1,0 +1,427 @@
+// ProITbridge — Payment & Enrollment Automation Platform
+// Phase 1 data model (FRD §10). See docs/DATA_MODEL.md for the key relationships
+// and why balance is NEVER stored. Money is always @db.Decimal(12,2) (BR-29).
+//
+// Two datasource URLs implement FR-SEC-11 (least-privilege app account):
+//   url       -> restricted runtime role (app + Prisma Client)
+//   directUrl -> owner/superuser, used only by `prisma migrate` for DDL + grants
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────── Enums ────────────────────────────────────
+
+enum Role {
+  SALESPERSON
+  SALES_MANAGER
+  DATA_MGMT_AUDITOR
+  FINANCE_REVIEWER
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  DEACTIVATED
+}
+
+/// FRD §3.4 — the 13 lead statuses, in pipeline order.
+enum LeadStatus {
+  NEW_LEAD
+  INTERESTED
+  BASIC_DETAILS_PENDING
+  BASIC_DETAILS_RECEIVED
+  PAYMENT_DRAFT_GENERATED
+  PAYMENT_PENDING
+  HOLDING_OR_STARTING_RECEIVED
+  DOWN_PAYMENT_PENDING
+  DOWN_PAYMENT_RECEIVED
+  FINAL_PAYMENT_PENDING
+  FULLY_PAID
+  ENROLLMENT_COMPLETED
+  OPERATIONS_HANDOVER
+}
+
+enum AuditStatus {
+  PENDING_AUDIT
+  APPROVED
+  CORRECTION_REQUIRED
+  REJECTED
+  RESUBMITTED
+}
+
+enum PaymentType {
+  COURSE_HOLDING
+  COURSE_STARTING
+  DOWN_PAYMENT
+  FINAL_PAYMENT
+}
+
+enum PaymentMethod {
+  UPI
+  NEFT
+  IMPS
+  RTGS
+  CARD
+  CASH
+  OTHER
+}
+
+enum Program {
+  DATA_ANALYST
+  ADV_DATA_SCIENCE_AI
+  AGENTIC_AI_GENAI
+  COMBO_ALL_THREE
+}
+
+enum Plan {
+  ADVANCED
+  PREMIUM
+}
+
+enum ComboMode {
+  SINGLE_SHOT
+  DOUBLE_SHOT
+}
+
+enum ConcessionStatus {
+  NONE
+  AUTO_APPROVED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum ConcessionThresholdType {
+  AMOUNT
+  PERCENTAGE
+}
+
+enum PricingStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum HandoverType {
+  MANUAL
+  AUTO_DAY15
+}
+
+// ─────────────────────────────── Models ───────────────────────────────────
+
+model User {
+  id                 String     @id @default(cuid()) @map("user_id")
+  name               String
+  email              String     @unique
+  mobile             String
+  passwordHash       String     @map("password_hash")
+  role               Role
+  status             UserStatus @default(ACTIVE)
+  twoFaEnabled       Boolean    @default(false) @map("two_fa_enabled")
+  twoFaSecret        String?    @map("two_fa_secret")
+  failedLoginCount   Int        @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?  @map("locked_until")
+  mustChangePassword Boolean    @default(true) @map("must_change_password")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  lastLogin          DateTime?  @map("last_login")
+  createdBy          String?    @map("created_by")
+
+  leads Lead[] @relation("SalespersonLeads")
+
+  @@index([role])
+  @@index([status])
+  @@map("user")
+}
+
+model Lead {
+  id            String     @id @default(cuid()) @map("lead_id")
+  fullName      String     @map("full_name")
+  dob           DateTime?
+  doorNo        String?    @map("door_no")
+  street        String?
+  address       String?
+  district      String?
+  state         String?
+  pincode       String?
+  email         String?
+  mobile        String?
+  leadSource    String?    @map("lead_source")
+  status        LeadStatus @default(NEW_LEAD)
+  salespersonId String     @map("salesperson_id")
+  remarks       String?
+  voided        Boolean    @default(false)
+  voidedReason  String?    @map("voided_reason")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  salesperson User        @relation("SalespersonLeads", fields: [salespersonId], references: [id], onDelete: Restrict)
+  enrollment  Enrollment?
+  followUps   FollowUpTask[]
+
+  @@index([salespersonId])
+  @@index([mobile])
+  @@index([email])
+  @@index([status])
+  @@map("lead")
+}
+
+model Enrollment {
+  id                String            @id @default(cuid()) @map("enrollment_id")
+  leadId            String            @unique @map("lead_id")
+  program           Program
+  plan              Plan
+  comboMode         ComboMode?        @map("combo_mode")
+  commencingDate    DateTime?         @map("commencing_date")
+  batch             String?
+  courseStartedFlag Boolean           @default(false) @map("course_started_flag")
+  standardFee       Decimal?          @map("standard_fee") @db.Decimal(12, 2)
+  concessionAmount  Decimal           @default(0) @map("concession_amount") @db.Decimal(12, 2)
+  concessionReason  String?           @map("concession_reason")
+  concessionStatus  ConcessionStatus  @default(NONE) @map("concession_status")
+  finalApprovedFee  Decimal?          @map("final_approved_fee") @db.Decimal(12, 2)
+  gstPercent        Decimal?          @map("gst_percent") @db.Decimal(5, 2)
+  baseFee           Decimal?          @map("base_fee") @db.Decimal(12, 2)
+  gstAmount         Decimal?          @map("gst_amount") @db.Decimal(12, 2)
+  feeLockedAt       DateTime?         @map("fee_locked_at")
+  pricingId         String?           @map("pricing_id")
+  enrollmentStatus  String            @default("DRAFT") @map("enrollment_status")
+  paymentSchedule   Json?             @map("payment_schedule")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  lead      Lead                 @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  pricing   PricingMaster?       @relation(fields: [pricingId], references: [id], onDelete: Restrict)
+  payments  Payment[]
+  drafts    PaymentDraft[]
+  handovers OperationsHandover[]
+
+  @@index([pricingId])
+  @@index([enrollmentStatus])
+  @@map("enrollment")
+}
+
+model Payment {
+  id              String        @id @default(cuid()) @map("payment_id")
+  enrollmentId    String        @map("enrollment_id")
+  paymentNumber   Int           @map("payment_number")
+  paymentType     PaymentType   @map("payment_type")
+  expectedAmount  Decimal       @map("expected_amount") @db.Decimal(12, 2)
+  receivedAmount  Decimal       @map("received_amount") @db.Decimal(12, 2)
+  paymentDate     DateTime      @map("payment_date")
+  paymentMethod   PaymentMethod @map("payment_method")
+  transactionId   String        @unique @map("transaction_id")
+  paymentStatus   String        @default("RECORDED") @map("payment_status")
+  auditStatus     AuditStatus   @default(PENDING_AUDIT) @map("audit_status")
+  submittedBy     String        @map("submitted_by")
+  submittedAt     DateTime      @default(now()) @map("submitted_at")
+  auditedBy       String?       @map("audited_by")
+  auditedAt       DateTime?     @map("audited_at")
+  auditReasonCode String?       @map("audit_reason_code")
+  auditComment    String?       @map("audit_comment")
+  varianceReason  String?       @map("variance_reason")
+  manualEntryNoOcr Boolean      @default(false) @map("manual_entry_no_ocr")
+  voided          Boolean       @default(false)
+  voidedReason    String?       @map("voided_reason")
+  locked          Boolean       @default(false)
+
+  enrollment Enrollment     @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  proofs     PaymentProof[]
+
+  @@unique([enrollmentId, paymentNumber])
+  @@index([auditStatus])
+  @@index([submittedAt])
+  @@index([auditedAt])
+  @@index([enrollmentId])
+  @@map("payment")
+}
+
+model PaymentProof {
+  id               String   @id @default(cuid()) @map("proof_file_id")
+  paymentId        String   @map("payment_id")
+  filePath         String   @map("file_path")
+  fileType         String   @map("file_type")
+  fileSize         Int      @map("file_size")
+  uploadedBy       String   @map("uploaded_by")
+  uploadedAt       DateTime @default(now()) @map("uploaded_at")
+  version          Int      @default(1)
+  ocrRawOutput     Json?    @map("ocr_raw_output")
+  checksumSha256   String   @map("checksum_sha256")
+  virusScanStatus  String   @default("PENDING") @map("virus_scan_status")
+  originalFilename String   @map("original_filename")
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentId, version])
+  @@index([paymentId])
+  @@map("payment_proof")
+}
+
+model PricingMaster {
+  id                       String                   @id @default(cuid()) @map("pricing_id")
+  program                  Program
+  plan                     Plan?
+  advancedFee              Decimal?                 @map("advanced_fee") @db.Decimal(12, 2)
+  premiumFee               Decimal?                 @map("premium_fee") @db.Decimal(12, 2)
+  singleShotFee            Decimal?                 @map("single_shot_fee") @db.Decimal(12, 2)
+  doubleShotFee            Decimal?                 @map("double_shot_fee") @db.Decimal(12, 2)
+  comboFee                 Decimal?                 @map("combo_fee") @db.Decimal(12, 2)
+  discount                 Decimal?                 @db.Decimal(12, 2)
+  concessionThresholdValue Decimal?                 @map("concession_threshold_value") @db.Decimal(12, 2)
+  concessionThresholdType  ConcessionThresholdType? @map("concession_threshold_type")
+  gstPercent               Decimal                  @default(18) @map("gst_percent") @db.Decimal(5, 2)
+  effectiveFrom            DateTime                 @map("effective_from")
+  effectiveTo              DateTime?                @map("effective_to")
+  specialPricingFlag       Boolean                  @default(false) @map("special_pricing_flag")
+  specialPricingName       String?                  @map("special_pricing_name")
+  status                   PricingStatus            @default(ACTIVE)
+  createdBy                String                   @map("created_by")
+  createdAt                DateTime                 @default(now()) @map("created_at")
+
+  enrollments Enrollment[]
+
+  @@index([program, plan])
+  @@index([status, effectiveFrom])
+  @@map("pricing_master")
+}
+
+model PaymentDraft {
+  id            String   @id @default(cuid()) @map("draft_id")
+  enrollmentId  String   @map("enrollment_id")
+  version       Int
+  draftContent  String   @map("draft_content") @db.Text
+  draftSnapshot Json     @map("draft_snapshot")
+  generatedBy   String   @map("generated_by")
+  generatedAt   DateTime @default(now()) @map("generated_at")
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+
+  @@unique([enrollmentId, version])
+  @@index([enrollmentId])
+  @@map("payment_draft")
+}
+
+/// Immutable, append-only. No update/delete at runtime (Prisma extension) or at
+/// the DB level (UPDATE/DELETE revoked from the app role). FR-AUD-01/02, BR-14.
+model AuditTrail {
+  id              String   @id @default(cuid()) @map("audit_id")
+  entityType      String   @map("entity_type")
+  entityId        String   @map("entity_id")
+  action          String
+  fieldName       String?  @map("field_name")
+  oldValue        String?  @map("old_value") @db.Text
+  newValue        String?  @map("new_value") @db.Text
+  performedBy     String   @map("performed_by")
+  performedByRole Role     @map("performed_by_role")
+  performedAt     DateTime @default(now()) @map("performed_at")
+  ipAddress       String?  @map("ip_address")
+  userAgent       String?  @map("user_agent")
+  requestId       String?  @map("request_id")
+
+  @@index([entityType, entityId])
+  @@index([performedAt])
+  @@index([performedBy])
+  @@map("audit_trail")
+}
+
+/// Immutable, append-only (same protections as AuditTrail). Read-only to Finance.
+model SuperAdminActivity {
+  id           String   @id @default(cuid()) @map("activity_id")
+  superAdminId String   @map("super_admin_id")
+  overrideType String   @map("override_type")
+  entityType   String   @map("entity_type")
+  entityId     String   @map("entity_id")
+  reasonText   String   @map("reason_text") @db.Text
+  previousState Json?   @map("previous_state")
+  newState     Json?    @map("new_state")
+  performedAt  DateTime @default(now()) @map("performed_at")
+  notifiedTo   String[] @map("notified_to")
+
+  @@index([superAdminId])
+  @@index([performedAt])
+  @@map("super_admin_activity")
+}
+
+model Notification {
+  id                String    @id @default(cuid()) @map("notification_id")
+  recipientId       String    @map("recipient_id")
+  type              String
+  channel           String
+  subject           String
+  body              String    @db.Text
+  relatedEntityType String?   @map("related_entity_type")
+  relatedEntityId   String?   @map("related_entity_id")
+  status            String    @default("PENDING")
+  scheduledAt       DateTime? @map("scheduled_at")
+  sentAt            DateTime? @map("sent_at")
+  readAt            DateTime? @map("read_at")
+  failureReason     String?   @map("failure_reason")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@index([recipientId, status])
+  @@index([scheduledAt])
+  @@map("notification")
+}
+
+model FollowUpTask {
+  id          String    @id @default(cuid()) @map("task_id")
+  leadId      String    @map("lead_id")
+  assignedTo  String    @map("assigned_to")
+  dueDate     DateTime  @map("due_date")
+  description String    @db.Text
+  status      String    @default("OPEN")
+  completedAt DateTime? @map("completed_at")
+  createdBy   String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Restrict)
+
+  @@index([leadId])
+  @@index([assignedTo, status])
+  @@map("follow_up_task")
+}
+
+model OperationsHandover {
+  id               String       @id @default(cuid()) @map("handover_id")
+  enrollmentId     String       @map("enrollment_id")
+  handoverType     HandoverType @map("handover_type")
+  validatedFlag    Boolean      @default(false) @map("validated_flag")
+  validationErrors Json?        @map("validation_errors")
+  handoverDate     DateTime?    @map("handover_date")
+  generatedBy      String       @map("generated_by")
+  snapshot         Json?
+  createdAt        DateTime     @default(now()) @map("created_at")
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+
+  @@index([enrollmentId])
+  @@map("operations_handover")
+}
+
+model SystemConfig {
+  key         String   @id
+  value       Json
+  description String?
+  updatedBy   String?  @map("updated_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_config")
+}
+
+model SecurityEvent {
+  id        String   @id @default(cuid()) @map("event_id")
+  eventType String   @map("event_type")
+  userId    String?  @map("user_id")
+  ipAddress String?  @map("ip_address")
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([eventType, createdAt])
+  @@index([userId])
+  @@map("security_event")
+}

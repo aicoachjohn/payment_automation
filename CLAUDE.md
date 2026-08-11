@@ -227,7 +227,7 @@ pnpm db:studio    # prisma studio         (Phase 1+)
 Update this checklist at the end of every phase.
 
 - [x] **Phase 0** — Foundation & Project Constitution
-- [ ] **Phase 1** — Data Model, Money & Audit Core
+- [x] **Phase 1** — Data Model, Money & Audit Core
 - [ ] **Phase 2** — Auth, RBAC & Security Baseline
 - [ ] **Phase 3** — Pricing Master & Fee Engine
 - [ ] **Phase 4** — Sales: Leads & Basic Details
