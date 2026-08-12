@@ -9,7 +9,7 @@ import { AuditStatus, HandoverType, Role } from "@prisma/client";
 import { db } from "@/server/db";
 import { writeAudit } from "@/server/audit";
 import { requireRecordAccess, type Actor } from "@/server/auth/permissions";
-import { calculateBalance, lte } from "@/server/money";
+import { calculateBalance, lte, sum, round } from "@/server/money";
 import { isBasicComplete } from "@/server/services/leads";
 
 export class HandoverError extends Error {
@@ -44,7 +44,7 @@ export async function buildHandoverSnapshot(enrollmentId: string): Promise<Hando
   const l = e.lead;
 
   const approved = e.payments.filter((p) => p.auditStatus === AuditStatus.APPROVED);
-  const totalReceived = approved.reduce((acc, p) => acc + Number(p.receivedAmount), 0).toFixed(2);
+  const totalReceived = round(sum(approved.map((p) => p.receivedAmount.toString()))).toFixed(2);
   const balance = calculateBalance(
     e.finalApprovedFee?.toString() ?? "0",
     e.payments.map((p) => ({ receivedAmount: p.receivedAmount.toString(), auditStatus: p.auditStatus, voided: p.voided })),

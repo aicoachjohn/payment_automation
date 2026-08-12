@@ -135,13 +135,13 @@ describe("admin config is audited (FR-ADM-04/05)", () => {
   });
 
   it("setConcessionThreshold persists per plan and is audited", async () => {
-    await setConcessionThreshold(adminActor, Plan.ADVANCED, { amount: 1500, percent: 8 });
+    await setConcessionThreshold(adminActor, Plan.ADVANCED, { amount: "1500", percent: "8" });
     const t = await getConcessionThreshold(Plan.ADVANCED);
-    expect(t).toEqual({ amount: 1500, percent: 8 });
+    expect(t).toEqual({ amount: "1500", percent: "8" });
     const audits = await prisma.auditTrail.count({ where: { entityType: "SystemConfig", entityId: "concession_threshold" } });
     expect(audits).toBeGreaterThanOrEqual(1);
     // restore
-    await setConcessionThreshold(adminActor, Plan.ADVANCED, { amount: 2000, percent: 10 });
+    await setConcessionThreshold(adminActor, Plan.ADVANCED, { amount: "2000", percent: "10" });
     await getConcessionThresholdConfig();
   });
 });

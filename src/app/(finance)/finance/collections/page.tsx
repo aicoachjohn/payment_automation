@@ -7,6 +7,7 @@ import {
   collectionTrend,
 } from "@/server/services/finance";
 import { getFinanceDigestPrefs } from "@/server/services/finance-digest";
+import { toPaise } from "@/server/money";
 import { formatINR, formatDate } from "@/lib/format";
 import { BarChart, type BarDatum } from "@/components/shared/bar-chart";
 import { DigestForm } from "./digest-form";
@@ -34,8 +35,9 @@ export default async function FinanceCollectionsPage({
     getFinanceDigestPrefs(actor),
   ]);
 
-  const trendData: BarDatum[] = trend.trend.map((p) => ({ label: p.label.split(" ")[0], value: Number(p.value), display: formatINR(p.value) }));
-  const mixData: BarDatum[] = trend.typeMix.map((m) => ({ label: m.label.split(" ")[0], value: Number(m.value), display: formatINR(m.value) }));
+  // Bar heights use exact integer paise (geometry only — never money arithmetic, FR-REC-07).
+  const trendData: BarDatum[] = trend.trend.map((p) => ({ label: p.label.split(" ")[0], value: toPaise(p.value), display: formatINR(p.value) }));
+  const mixData: BarDatum[] = trend.typeMix.map((m) => ({ label: m.label.split(" ")[0], value: toPaise(m.value), display: formatINR(m.value) }));
 
   const exp = (report: string, format: string) =>
     `/api/finance/export?${new URLSearchParams({ report, format, year: String(year), month: String(month) })}`;

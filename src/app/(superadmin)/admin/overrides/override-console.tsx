@@ -12,7 +12,7 @@ import { describeOverrideAction, performOverrideAction } from "@/app/(superadmin
  */
 type Kind =
   | "REVERSE_AUDIT" | "UNLOCK_FEE" | "REASSIGN_LEAD" | "APPROVE_CONCESSION"
-  | "EXTEND_DEADLINE" | "REVERSE_OPS_TRANSFER" | "DELEGATED_AUDIT";
+  | "EXTEND_DEADLINE" | "REVERSE_OPS_TRANSFER" | "DELEGATED_AUDIT" | "VOID_PAYMENT";
 
 const KIND_LABEL: Record<Kind, string> = {
   REVERSE_AUDIT: "Reverse / reopen an audit decision",
@@ -22,6 +22,7 @@ const KIND_LABEL: Record<Kind, string> = {
   EXTEND_DEADLINE: "Extend a 15-day deadline",
   REVERSE_OPS_TRANSFER: "Reverse an Operations transfer",
   DELEGATED_AUDIT: "Delegated audit (act as L1 auditor)",
+  VOID_PAYMENT: "Void a payment entered in error",
 };
 
 export function OverrideConsole({ salespeople }: { salespeople: { id: string; name: string }[] }) {
@@ -50,6 +51,7 @@ export function OverrideConsole({ salespeople }: { salespeople: { id: string; na
       case "EXTEND_DEADLINE": return { ...base, enrollmentId: fields.enrollmentId ?? "", days: fields.days ?? "" };
       case "REVERSE_OPS_TRANSFER": return { ...base, enrollmentId: fields.enrollmentId ?? "" };
       case "DELEGATED_AUDIT": return { ...base, paymentId: fields.paymentId ?? "", decision: fields.decision ?? "APPROVE", confirmations, varianceReason: fields.varianceReason };
+      case "VOID_PAYMENT": return { ...base, paymentId: fields.paymentId ?? "" };
     }
   }
 
@@ -92,7 +94,7 @@ export function OverrideConsole({ salespeople }: { salespeople: { id: string; na
 
       {/* Target-id fields per kind */}
       <div className="grid gap-3 md:grid-cols-2">
-        {(kind === "REVERSE_AUDIT" || kind === "DELEGATED_AUDIT") && (
+        {(kind === "REVERSE_AUDIT" || kind === "DELEGATED_AUDIT" || kind === "VOID_PAYMENT") && (
           <Field label="Payment ID" value={fields.paymentId ?? ""} onChange={(v) => set("paymentId", v)} />
         )}
         {(kind === "UNLOCK_FEE" || kind === "EXTEND_DEADLINE" || kind === "REVERSE_OPS_TRANSFER") && (

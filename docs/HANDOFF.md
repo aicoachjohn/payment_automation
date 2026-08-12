@@ -1,10 +1,9 @@
 # Session Handoff — ProITbridge Build
 
 **Read this, then `CLAUDE.md` (constitution), then the two memory files, before writing code.**
-Last completed: **Phase 10** (Automation Engine). Working tree: commit at end of phase.
-Next: **Phase 11 — Payment Integrity & Reconciliation** (pack: search "PHASE 11"; FRD §13,
-FR-REC-01..). Money invariants (Decimal, computed totals, unique Txn ID) and the reconciliation
-tooling — most of the primitives already exist in `src/server/money` + the finance services.
+Last completed: **Phase 11** (Payment Integrity & Reconciliation). Working tree: commit at
+end of phase. Next (final): **Phase 12 — Hardening, Testing, UAT & Deployment** (pack:
+search "PHASE 12"; FRD §11 NFR-01..16, §12.4-12.6 FR-SEC-27..46, §15.1 acceptance criteria).
 
 ---
 
@@ -55,12 +54,15 @@ Integration tests import services via `await import(...)` and use `loadEnv()` fr
 Seed password `ChangeMe#123` (super admin's was changed to `SuperAdmin#2026` during manual
 verification; `must_change_password` true for the rest).
 
-## Testing status (all green at Phase 10)
+## Testing status (all green at Phase 11)
 
-- **247 unit + 105 integration** pass; lint/typecheck/build clean.
-  (Phase 10 added `ist.test.ts` [pure IST boundary math], `automation.integration.test.ts`
-  [the 5 time-travel verify checks], `handover.integration.test.ts` [missing-field + 5-party
-  transfer], `notifications.integration.test.ts`.)
+- **250 unit + 112 integration** pass; lint/typecheck/build clean.
+  (Phase 11 added `no-float-money.test.ts` [greps the whole tree for money-floats, FR-REC-07]
+  and `phase11.verify.test.ts` [the 5 verify checks + void + FR-REC-05/18].)
+- **Money is exact Decimal only** — `tests/unit/no-float-money.test.ts` will FAIL any new
+  `parseFloat`/`Number(<money>)` in `src/` outside `src/server/money`. Use money helpers;
+  `toPaise` is the only sanctioned money→number, for chart geometry.
+- **docs/RECONCILIATION.md** maps all 18 FR-REC controls to impl (file:line) + test.
 - **Time-travel pattern**: `runDailyAutomation(now)` takes `now`; seed an approval then pin
   its `auditedAt` via prisma to control the countdown anchor. Idempotency is real DB state
   (`JobRun.dedupeKey`), so `beforeEach` clears this test's job rows.
@@ -140,7 +142,21 @@ verification; `must_change_password` true for the rest).
   `reminder_days`, `down_payment_window_days`, `basic_incomplete_hours`,
   `draft_no_payment_hours`, `learner_reminders_enabled`.
 
-## What exists (services you'll reuse in Phase 11)
+### Phase 11 (Reconciliation) — what landed, for reuse
+
+- `src/server/services/reconciliation.ts` — `runReconciliation` (nightly, wired into the
+  automation tick + `/admin/reconciliation` "Run now"), `verifyFinanceTotal` (independent
+  aggregate vs dashboard, FR-REC-13), `orphanReport`, `monthEndStatement`, `traceCollection`
+  /`traceEnrollment` (the "trace this number" drill-down at `/finance/trace`),
+  `monthlyExceptionsReport`, and the `ReconciliationException` lifecycle (open/ack/resolved,
+  raised to SA + Rajesh).
+- New override kind `VOID_PAYMENT` (FR-REC-10) through the single `performOverride` funnel —
+  voids with a mandatory reason, excluded from totals, kept in history.
+- `capturePayment` now returns `probableDuplicate` (FR-REC-05 submission-side warning).
+- Concession threshold is stored as exact-decimal STRINGS now (was `number`); `money.toPaise`
+  is the only sanctioned money→number.
+
+## What exists (services you'll reuse in Phase 12)
 
 - `src/server/services/finance-visibility.ts` — **THE single predicate**
   `financeVisiblePaymentWhere()` / `isVisibleToFinance()` = `APPROVED && !voided`

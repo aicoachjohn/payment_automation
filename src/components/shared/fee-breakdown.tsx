@@ -25,8 +25,9 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 }
 
 export function FeeBreakdown(props: FeeBreakdownProps) {
-  const hasConcession = props.concessionAmount != null && Number(props.concessionAmount) > 0;
-  const gstPct = Number(props.gstPercent).toFixed(0);
+  // Concession is non-negative, so "> 0" is exactly "has a non-zero digit" — no float (FR-REC-07).
+  const hasConcession = props.concessionAmount != null && /[1-9]/.test(props.concessionAmount);
+  const gstPct = String(props.gstPercent).replace(/\.0+$/, "");
   return (
     <div className="rounded-lg border border-slate-200 p-4 text-sm dark:border-slate-800">
       <Row label="Base Fee" value={formatINR(props.baseFee)} />

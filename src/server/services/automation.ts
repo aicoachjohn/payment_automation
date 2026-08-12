@@ -49,15 +49,26 @@ export interface AutomationSummary {
   staleNudges: number;
   followUpsDue: number;
   ageingEscalations: number;
+  reconciliationExceptions: number;
 }
 
 export async function runDailyAutomation(now: Date = new Date()): Promise<AutomationSummary> {
-  const summary: AutomationSummary = { remindersSent: 0, approachingAlerts: 0, transfers: 0, staleNudges: 0, followUpsDue: 0, ageingEscalations: 0 };
+  const summary: AutomationSummary = { remindersSent: 0, approachingAlerts: 0, transfers: 0, staleNudges: 0, followUpsDue: 0, ageingEscalations: 0, reconciliationExceptions: 0 };
   await fifteenDayRule(now, summary);
   await staleTriggers(now, summary);
   await followUpDue(now, summary);
   await ageingEscalation(now, summary);
+  await reconciliationPass(now, summary);
   return summary;
+}
+
+/** Nightly reconciliation (FR-REC-11). Idempotent per IST day; raised exceptions dedupe. */
+async function reconciliationPass(now: Date, summary: AutomationSummary): Promise<void> {
+  const { runReconciliation } = await import("@/server/services/reconciliation");
+  const out = await runOnce("daily-reconciliation", `daily-reconciliation:${istDateKey(now)}`, () => runReconciliation());
+  if (out.ran && out.detail && typeof out.detail === "object" && "exceptionsRaised" in out.detail) {
+    summary.reconciliationExceptions = (out.detail as { exceptionsRaised: number }).exceptionsRaised;
+  }
 }
 
 // ── The 15-day rule (FR-SAL-49..53) ─────────────────────────────────────────────

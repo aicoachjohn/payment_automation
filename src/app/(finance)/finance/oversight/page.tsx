@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { Role } from "@prisma/client";
 import { requireRoles } from "@/server/auth/guard";
 import { listSuperAdminActivity, overrideSummary } from "@/server/services/overrides";
+import { listExceptions } from "@/server/services/reconciliation";
 import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +21,12 @@ const TYPE_LABEL: Record<string, string> = {
 export default async function FinanceOversightPage() {
   const { actor } = await requireRoles([Role.FINANCE_REVIEWER]);
   const now = new Date();
-  const [rows, summary] = await Promise.all([
+  const [rows, summary, exceptions] = await Promise.all([
     listSuperAdminActivity(actor, {}),
     overrideSummary(actor, now.getUTCFullYear(), now.getUTCMonth() + 1),
+    listExceptions(actor),
   ]);
+  const openExceptions = exceptions.filter((e) => e.status !== "RESOLVED");
 
   return (
     <section className="space-y-6">
@@ -33,6 +37,23 @@ export default async function FinanceOversightPage() {
           is withdrawn, a fee is unlocked, an above-threshold concession is approved, or a delegated audit is performed
           (FR-SA-18).
         </p>
+      </div>
+
+      {/* Reconciliation exceptions raised to Rajesh (FR-REC-12) */}
+      <div className={`rounded-lg border p-4 ${openExceptions.length > 0 ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950" : "border-slate-200 dark:border-slate-800"}`}>
+        <h2 className="mb-1 text-sm font-semibold">Reconciliation exceptions ({openExceptions.length} open)</h2>
+        {openExceptions.length === 0 ? (
+          <p className="text-sm text-slate-500">None open. The books reconcile.</p>
+        ) : (
+          <ul className="space-y-1 text-sm">
+            {openExceptions.slice(0, 10).map((e) => (
+              <li key={e.id}>
+                <span className="font-medium">{e.kind}</span> — {e.detail}
+                {e.enrollmentId && <> · <Link href={`/finance/trace?enrollmentId=${e.enrollmentId}`} className="text-sky-600 hover:underline">trace</Link></>}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">

@@ -54,15 +54,16 @@ export async function calculateFee(selection: FeeSelection): Promise<FeeQuote> {
 
 // ── Config-backed resolvers (BR-13) ──────────────────────────────────────────
 
-const DEFAULT_THRESHOLD: ConcessionThreshold = { amount: 2000, percent: 10 };
+const DEFAULT_THRESHOLD: ConcessionThreshold = { amount: "2000", percent: "10" };
 
-/** Per-plan concession threshold (FR-ADM-05, FR-SAL-28), read from SystemConfig. */
+/** Per-plan concession threshold (FR-ADM-05, FR-SAL-28), read from SystemConfig. Values
+ *  are kept as exact-decimal strings (MoneyInput) and never coerced to a JS float. */
 export async function getConcessionThreshold(plan: Plan): Promise<ConcessionThreshold> {
   const row = await db.systemConfig.findUnique({ where: { key: "concession_threshold" } });
-  const cfg = row?.value as Record<string, { amount: number; percent: number }> | undefined;
+  const cfg = row?.value as Record<string, { amount: unknown; percent: unknown }> | undefined;
   const forPlan = cfg?.[plan];
-  if (forPlan && typeof forPlan.amount === "number" && typeof forPlan.percent === "number") {
-    return { amount: forPlan.amount, percent: forPlan.percent };
+  if (forPlan && forPlan.amount != null && forPlan.percent != null) {
+    return { amount: String(forPlan.amount), percent: String(forPlan.percent) };
   }
   return DEFAULT_THRESHOLD;
 }

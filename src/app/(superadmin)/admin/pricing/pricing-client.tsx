@@ -28,7 +28,7 @@ export interface PricingRow {
   specialPricingName: string | null;
 }
 
-type Thresholds = Record<string, { amount: number; percent: number }>;
+type Thresholds = Record<string, { amount: string; percent: string }>;
 
 interface NewPricing {
   program: Program;
@@ -101,7 +101,7 @@ export function PricingClient({
                   <td className="px-3 py-2">{r.plan ?? "—"}</td>
                   <td className="px-3 py-2 font-mono text-xs">{money(r.advancedFee)} / {money(r.premiumFee)}</td>
                   <td className="px-3 py-2 font-mono text-xs">{money(r.singleShotFee)} / {money(r.doubleShotFee)}</td>
-                  <td className="px-3 py-2">{Number(r.gstPercent).toFixed(0)}%</td>
+                  <td className="px-3 py-2">{String(r.gstPercent).replace(/\.0+$/, "")}%</td>
                   <td className="px-3 py-2 text-xs">
                     {formatDate(r.effectiveFrom)}
                     {r.effectiveTo ? ` → ${formatDate(r.effectiveTo)}` : " → open"}
@@ -245,27 +245,27 @@ function CreatePricing({ pending, onSubmit }: { pending: boolean; onSubmit: (dat
   );
 }
 
-function ThresholdEditor({ thresholds, pending, onSubmit }: { thresholds: Thresholds; pending: boolean; onSubmit: (plan: Plan, amount: number, percent: number) => void }) {
+function ThresholdEditor({ thresholds, pending, onSubmit }: { thresholds: Thresholds; pending: boolean; onSubmit: (plan: Plan, amount: string, percent: string) => void }) {
   return (
     <div className="space-y-3">
       <h2 className="text-lg font-semibold">Concession thresholds (per plan)</h2>
       <p className="text-sm text-slate-500">A concession at or below the lower of the amount cap and the percent cap is auto-approved; above it needs Manager/Admin approval.</p>
       <div className="flex flex-wrap gap-6">
         {Object.values(Plan).map((plan) => (
-          <ThresholdRow key={plan} plan={plan} value={thresholds[plan] ?? { amount: 2000, percent: 10 }} pending={pending} onSubmit={onSubmit} />
+          <ThresholdRow key={plan} plan={plan} value={thresholds[plan] ?? { amount: "2000", percent: "10" }} pending={pending} onSubmit={onSubmit} />
         ))}
       </div>
     </div>
   );
 }
 
-function ThresholdRow({ plan, value, pending, onSubmit }: { plan: Plan; value: { amount: number; percent: number }; pending: boolean; onSubmit: (plan: Plan, amount: number, percent: number) => void }) {
+function ThresholdRow({ plan, value, pending, onSubmit }: { plan: Plan; value: { amount: string; percent: string }; pending: boolean; onSubmit: (plan: Plan, amount: string, percent: string) => void }) {
   const [amount, setAmount] = useState(String(value.amount));
   const [percent, setPercent] = useState(String(value.percent));
   return (
     <form
       className="flex items-end gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
-      onSubmit={(e) => { e.preventDefault(); onSubmit(plan, Number(amount), Number(percent)); }}
+      onSubmit={(e) => { e.preventDefault(); onSubmit(plan, amount.trim(), percent.trim()); }}
     >
       <span className="text-sm font-medium">{plan}</span>
       <label className="flex flex-col gap-1 text-xs text-slate-500">Amount ₹

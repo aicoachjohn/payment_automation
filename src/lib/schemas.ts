@@ -95,8 +95,9 @@ export const pricingIdSchema = z.object({ pricingId: z.string().min(1) });
 
 export const concessionThresholdSchema = z.object({
   plan: z.nativeEnum(Plan),
-  amount: z.number().nonnegative(),
-  percent: z.number().min(0).max(100),
+  // Exact-decimal strings — money and rate are never coerced through a JS float (FR-REC-07).
+  amount: money2,
+  percent: z.string().trim().regex(/^\d{1,3}(\.\d{1,2})?$/, "Enter a percentage (0–100)."),
 });
 
 export const reasonCodesSchema = z.object({
@@ -345,6 +346,7 @@ export const overrideInputSchema = z.discriminatedUnion("kind", [
     confirmations: confirmations.optional(),
     varianceReason: z.string().trim().optional(),
   }),
+  z.object({ kind: z.literal("VOID_PAYMENT"), paymentId: z.string().min(1), reason }),
 ]);
 
 export const auditLogFilterSchema = z.object({

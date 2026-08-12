@@ -97,7 +97,7 @@ function sameValue(field: OcrFieldKey, extracted: string | undefined, final: str
   return extracted === final;
 }
 
-export async function capturePayment(actor: Actor, leadId: string, input: CaptureInput): Promise<{ paymentId: string; paymentNumber: number }> {
+export async function capturePayment(actor: Actor, leadId: string, input: CaptureInput): Promise<{ paymentId: string; paymentNumber: number; probableDuplicate: boolean }> {
   const lead = await getLeadForActor(actor, leadId);
   requirePermission(actor, "payment:create");
   const enrollment = lead.enrollment;
@@ -148,6 +148,17 @@ export async function capturePayment(actor: Actor, leadId: string, input: Captur
     throw new PaymentError("The received amount differs from the expected amount — a reason is required.");
   }
 
+  // Probable duplicate — same lead, same amount, same date within the window (FR-REC-05).
+  // A non-blocking WARNING at submission (Nandhiya sees it again at approval).
+  const dupWindowHours = await getConfigNumber("duplicate_payment_window_hours", 24);
+  const payDate = new Date(input.paymentDate).getTime();
+  const probableDuplicate = existing.some(
+    (p) =>
+      !p.voided &&
+      eq(p.receivedAmount.toString(), input.receivedAmount) &&
+      Math.abs(p.paymentDate.getTime() - payDate) <= dupWindowHours * 3_600_000,
+  );
+
   try {
     const result = await db.$transaction(async (tx) => {
       const payment = await tx.payment.create({
@@ -195,7 +206,7 @@ export async function capturePayment(actor: Actor, leadId: string, input: Captur
       await advanceLeadStatus(tx, leadId, actor);
       return payment;
     });
-    return { paymentId: result.id, paymentNumber };
+    return { paymentId: result.id, paymentNumber, probableDuplicate };
   } catch (e) {
     // Duplicate Transaction ID → name the conflicting lead + payment (FR-SAL-43, BR-06).
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {

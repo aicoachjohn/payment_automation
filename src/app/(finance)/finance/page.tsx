@@ -129,10 +129,13 @@ export default async function FinanceStatementPage({
         </div>
       </form>
 
-      {/* Period totals (FR-FIN-05) */}
-      <div className="flex flex-wrap gap-6 text-sm">
+      {/* Period totals (FR-FIN-05) — each total is drillable to its exact rows (FR-REC-16) */}
+      <div className="flex flex-wrap items-center gap-6 text-sm">
         <div><span className="text-slate-500">Records:</span> <strong>{statement.count}</strong></div>
-        <div><span className="text-slate-500">Period total received:</span> <strong>{formatINR(statement.total)}</strong></div>
+        <div>
+          <span className="text-slate-500">Period total received:</span> <strong>{formatINR(statement.total)}</strong>
+          <Link href={`/finance/trace?from=${filters.from}&to=${filters.to}${filters.paymentType ? `&paymentType=${filters.paymentType}` : ""}`} className="ml-2 text-xs text-sky-600 hover:underline">trace this number →</Link>
+        </div>
       </div>
 
       {/* Statement table (FR-FIN-03) */}

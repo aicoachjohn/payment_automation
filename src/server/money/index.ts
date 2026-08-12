@@ -53,6 +53,16 @@ export function round(value: MoneyInput): Money {
   return new D(value).toDecimalPlaces(2, HALF_UP);
 }
 
+/**
+ * Exact integer paise for a money amount (rounded once). This is the ONLY sanctioned way
+ * to obtain a JS `number` from money, and it is for GEOMETRY/PRESENTATION ONLY (e.g. a
+ * chart bar height) — never for money arithmetic, which must stay in Decimal (FR-REC-07).
+ * Being an integer count of paise, it carries no floating-point error for 2dp values.
+ */
+export function toPaise(value: MoneyInput): number {
+  return round(value).times(100).toNumber();
+}
+
 /** true if two amounts are numerically equal (ignores scale, e.g. 1 == 1.00). */
 export function eq(a: MoneyInput, b: MoneyInput): boolean {
   return new D(a).equals(new D(b));

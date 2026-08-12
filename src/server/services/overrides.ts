@@ -43,7 +43,8 @@ export type OverrideKind =
   | "APPROVE_CONCESSION"
   | "EXTEND_DEADLINE"
   | "REVERSE_OPS_TRANSFER"
-  | "DELEGATED_AUDIT";
+  | "DELEGATED_AUDIT"
+  | "VOID_PAYMENT";
 
 export type OverrideInput =
   | { kind: "REVERSE_AUDIT"; paymentId: string; reason: string }
@@ -59,7 +60,8 @@ export type OverrideInput =
       reason: string;
       confirmations?: ApprovalConfirmations;
       varianceReason?: string;
-    };
+    }
+  | { kind: "VOID_PAYMENT"; paymentId: string; reason: string };
 
 /** Each override kind is gated by an SA-only permission AND the SUPER_ADMIN role. */
 const OVERRIDE_PERMISSION: Record<OverrideKind, Permission> = {
@@ -70,6 +72,7 @@ const OVERRIDE_PERMISSION: Record<OverrideKind, Permission> = {
   EXTEND_DEADLINE: "lead:update:all",
   REVERSE_OPS_TRANSFER: "lead:update:all",
   DELEGATED_AUDIT: "payment:reverse-audit",
+  VOID_PAYMENT: "payment:reverse-audit",
 };
 
 interface NotifyIntent {
@@ -157,6 +160,8 @@ function runHandler(tx: DbTx, actor: Actor, input: OverrideInput): Promise<Handl
       return reverseOpsTransfer(tx, actor, input);
     case "DELEGATED_AUDIT":
       return delegatedAudit(tx, actor, input);
+    case "VOID_PAYMENT":
+      return voidPayment(tx, actor, input);
   }
 }
 
@@ -422,6 +427,48 @@ async function delegatedAudit(tx: DbTx, actor: Actor, input: Extract<OverrideInp
   };
 }
 
+/**
+ * Void a payment entered in error (FR-REC-10, FR-SA-14, BR-26). Nothing is ever deleted:
+ * the row is flagged voided with a mandatory reason, excluded from every total (the
+ * finance predicate and calculateBalance both drop voided rows), and stays permanently
+ * visible in history. Voiding an approved payment removes its amount from the collection,
+ * so Rajesh is notified. This writes a balance-change audit entry (FR-REC-16).
+ */
+async function voidPayment(tx: DbTx, actor: Actor, input: Extract<OverrideInput, { kind: "VOID_PAYMENT" }>): Promise<HandlerResult> {
+  const payment = await loadPaymentWithContext(input.paymentId);
+  if (payment.voided) throw new OverrideError("This payment is already voided.");
+  const wasApproved = payment.auditStatus === AuditStatus.APPROVED;
+
+  await tx.payment.update({ where: { id: payment.id }, data: { voided: true, voidedReason: input.reason.trim() } });
+  await writeAudit(tx, {
+    entityType: "Payment",
+    entityId: payment.id,
+    action: "VOID_PAYMENT",
+    changes: [
+      { field: "voided", oldValue: false, newValue: true },
+      { field: "reason", oldValue: null, newValue: input.reason.trim() },
+      // FR-REC-16: record the balance effect — an approved void withdraws this from totals.
+      { field: "balanceEffect", oldValue: wasApproved ? payment.receivedAmount.toString() : "0.00", newValue: "voided" },
+    ],
+    actor,
+  });
+  await advanceLeadStatus(tx, payment.enrollment.leadId, actor);
+
+  const finance = await usersInRoles([Role.FINANCE_REVIEWER]);
+  const salesperson = payment.enrollment.lead.salesperson;
+  const body = `Payment ${payment.transactionId} for ${payment.enrollment.lead.fullName} was voided. It is excluded from all totals but remains visible in history. Reason: ${input.reason.trim()}`;
+  return {
+    entityType: "Payment",
+    entityId: payment.id,
+    previousState: { voided: false, auditStatus: payment.auditStatus, withdrawnAmount: wasApproved ? payment.receivedAmount.toString() : "0.00" },
+    newState: { voided: true },
+    notify: [
+      { recipientId: salesperson.id, recipientEmail: salesperson.email, type: "OVERRIDE_VOID_PAYMENT", subject: "Payment voided", body, relatedEntityType: "Payment", relatedEntityId: payment.id },
+      ...notify(finance, { type: "OVERRIDE_VOID_PAYMENT", subject: "Payment voided", body, relatedEntityType: "Payment", relatedEntityId: payment.id }),
+    ],
+  };
+}
+
 // ── Consequence preview (FR-SA-15) ─────────────────────────────────────────────
 
 /**
@@ -467,6 +514,14 @@ export async function describeOverride(actor: Actor, input: OverrideInput): Prom
       const p = await db.payment.findUnique({ where: { id: input.paymentId } });
       const verb = input.decision === "APPROVE" ? "approve" : input.decision === "CORRECTION" ? "send for correction" : "reject";
       return `This will ${verb} payment ${p?.transactionId ?? ""} as "Audited by Super Admin (delegated)". Rajesh and Nandhiya will be notified.`;
+    }
+    case "VOID_PAYMENT": {
+      const p = await db.payment.findUnique({ where: { id: input.paymentId }, include: { enrollment: { include: { lead: true } } } });
+      if (!p) return "That payment was not found.";
+      const counted = p.auditStatus === AuditStatus.APPROVED && !p.voided;
+      return counted
+        ? `This will void payment ${p.transactionId} and withdraw ${formatINR(p.receivedAmount.toString())} from ${p.enrollment.lead.fullName}'s totals. The record stays in history. Rajesh and the salesperson will be notified.`
+        : `This will void payment ${p.transactionId} for ${p.enrollment.lead.fullName}. It affects no total (not currently approved) and stays in history. Rajesh and the salesperson will be notified.`;
     }
   }
 }

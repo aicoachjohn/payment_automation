@@ -152,20 +152,22 @@ export async function listAllPricing() {
 
 // ── Concession threshold (per plan) ───────────────────────────────────────────
 
-export type ConcessionThresholdConfig = Record<string, { amount: number; percent: number }>;
+export type ConcessionThresholdConfig = Record<string, { amount: string; percent: string }>;
 
 export async function getConcessionThresholdConfig(): Promise<ConcessionThresholdConfig> {
   const row = await db.systemConfig.findUnique({ where: { key: "concession_threshold" } });
-  return (row?.value as ConcessionThresholdConfig | undefined) ?? {
-    ADVANCED: { amount: 2000, percent: 10 },
-    PREMIUM: { amount: 2000, percent: 10 },
-  };
+  const stored = row?.value as Record<string, { amount: unknown; percent: unknown }> | undefined;
+  if (!stored) return { ADVANCED: { amount: "2000", percent: "10" }, PREMIUM: { amount: "2000", percent: "10" } };
+  // Normalise any legacy numeric values to exact-decimal strings (FR-REC-07).
+  const out: ConcessionThresholdConfig = {};
+  for (const [plan, v] of Object.entries(stored)) out[plan] = { amount: String(v.amount), percent: String(v.percent) };
+  return out;
 }
 
 export async function setConcessionThreshold(
   actor: Actor,
   plan: Plan,
-  value: { amount: number; percent: number },
+  value: { amount: string; percent: string },
 ): Promise<void> {
   requirePermission(actor, "config:write");
   const current = await getConcessionThresholdConfig();

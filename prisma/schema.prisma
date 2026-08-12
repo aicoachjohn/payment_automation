@@ -496,6 +496,28 @@ model NotificationPreference {
   @@map("notification_preference")
 }
 
+/// A reconciliation exception (Phase 11, FR-REC-12, BR-30). Raised when the daily check,
+/// the finance-total verification or the orphan scan finds a discrepancy. Has its own
+/// open/acknowledged/resolved lifecycle with a resolution note. `dedupeKey` (kind + entity)
+/// keeps re-raising idempotent; a resolved exception that recurs is reopened.
+model ReconciliationException {
+  id             String    @id @default(cuid()) @map("exception_id")
+  kind           String
+  enrollmentId   String?   @map("enrollment_id")
+  entityRef      String?   @map("entity_ref")
+  detail         String    @db.Text
+  status         String    @default("OPEN")
+  resolutionNote String?   @map("resolution_note")
+  dedupeKey      String    @unique @map("dedupe_key")
+  raisedAt       DateTime  @default(now()) @map("raised_at")
+  resolvedAt     DateTime? @map("resolved_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([kind])
+  @@map("reconciliation_exception")
+}
+
 model SecurityEvent {
   id        String   @id @default(cuid()) @map("event_id")
   eventType String   @map("event_type")

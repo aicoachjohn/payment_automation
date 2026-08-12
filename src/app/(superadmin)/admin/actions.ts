@@ -7,6 +7,7 @@ import { performOverride, describeOverride, OverrideError, type OverrideInput } 
 import { setConfig } from "@/server/services/system-config";
 import { findRecords } from "@/server/services/admin-console";
 import { runDailyAutomation } from "@/server/services/automation";
+import { runReconciliation, acknowledgeException, resolveException, ReconciliationError } from "@/server/services/reconciliation";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { z } from "zod";
 
@@ -72,6 +73,36 @@ export const runAutomationAction = withPermission("config:write")
     const summary = await runDailyAutomation(new Date());
     revalidatePath("/admin/jobs");
     return { ok: true as const, summary };
+  });
+
+/** Run the daily reconciliation check now (FR-REC-11). Raises exceptions to SA + Rajesh. */
+export const runReconciliationAction = withPermission("config:write")
+  .schema(z.object({}))
+  .action(async ({ ctx }) => {
+    const result = await runReconciliation(ctx.actor);
+    revalidatePath("/admin/reconciliation");
+    return { ok: true as const, checked: result.checked, exceptionsRaised: result.exceptionsRaised };
+  });
+
+export const acknowledgeExceptionAction = authActionClient
+  .schema(z.object({ id: z.string().min(1) }))
+  .action(async ({ parsedInput, ctx }) => {
+    await acknowledgeException(ctx.actor, parsedInput.id);
+    revalidatePath("/admin/reconciliation");
+    return { ok: true as const };
+  });
+
+export const resolveExceptionAction = withPermission("config:write")
+  .schema(z.object({ id: z.string().min(1), note: z.string().trim().min(1, "A resolution note is required.") }))
+  .action(async ({ parsedInput, ctx }) => {
+    try {
+      await resolveException(ctx.actor, parsedInput.id, parsedInput.note);
+      revalidatePath("/admin/reconciliation");
+      return { ok: true as const };
+    } catch (e) {
+      if (e instanceof ReconciliationError) return { ok: false as const, error: e.message };
+      throw e;
+    }
   });
 
 /** Search leads/payments for the record browser (FR-SA-03). Read-only. */

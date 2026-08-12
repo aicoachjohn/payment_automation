@@ -74,10 +74,13 @@ function formatScheduleLines(schedule: { number: number; amount: string; dueDate
     .join("\n");
 }
 
-/** Whether the enrollment carries an applied concession (→ "Special" confirmation). */
+/** Whether the enrollment carries an applied concession (→ "Special" confirmation).
+ *  Concession amounts are non-negative, so "> 0" is exactly "contains a non-zero digit" —
+ *  an exact test that avoids any floating-point coercion of money (FR-REC-07). */
 export function isSpecial(concessionAmount: string, status: ConcessionStatus): boolean {
+  const positive = /[1-9]/.test(concessionAmount);
   return (
-    Number(concessionAmount) > 0 &&
+    positive &&
     (status === ConcessionStatus.AUTO_APPROVED || status === ConcessionStatus.APPROVED)
   );
 }
