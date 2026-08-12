@@ -74,11 +74,11 @@ describe("generation locks the fee and advances the lead (FR-SAL-23/35)", () => 
     const lead = await prisma.lead.findUniqueOrThrow({ where: { id } });
     expect(lead.status).toBe(LeadStatus.PAYMENT_DRAFT_GENERATED);
 
-    // Content carries the key elements.
+    // Content carries the key elements (ProITbridge house style).
     expect(draft.content).toMatch(/Priya Sharma/);
-    expect(draft.content).toMatch(/560038/);
-    expect(draft.content).toMatch(/Final Approved Fee: ₹89,999\.00/);
-    expect(draft.content).toMatch(/Instalment 1: ₹44,999\.50/);
+    expect(draft.content).toMatch(/Pincode : 560038/);
+    expect(draft.content).toMatch(/Course Fee : \*INR\.89,999\/-\*/);
+    expect(draft.content).toMatch(/Instalment 1: INR\.44,999\.50\/-/);
     expect(draft.content).toMatch(/Transaction ID/);
   });
 });

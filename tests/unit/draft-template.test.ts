@@ -5,6 +5,8 @@ import {
   buildDraftContext,
   missingBasicFields,
   DEFAULT_DRAFT_TEMPLATE,
+  DEFAULT_BANK_DETAILS,
+  DEFAULT_DRAFT_INSTRUCTION,
 } from "@/server/services/draft-template";
 
 describe("renderTemplate — safe substitution (FR-SAL-33)", () => {
@@ -50,25 +52,25 @@ describe("buildDraftContext + default template — all 13 FR-SAL-32 elements pre
       { number: 1, amount: "43999.50", dueDate: "2026-09-01T00:00:00.000Z" },
       { number: 2, amount: "43999.50", dueDate: "2026-09-16T00:00:00.000Z" },
     ],
-    bankDetails: "Account Name: ProITbridge\nUPI: proitbridge@upi",
-    instruction: "Share the payment screenshot with the Transaction ID.",
+    bankDetails: DEFAULT_BANK_DETAILS,
+    instruction: DEFAULT_DRAFT_INSTRUCTION,
   });
   const out = renderTemplate(DEFAULT_DRAFT_TEMPLATE, ctx);
 
   const checks: [string, RegExp][] = [
-    ["1. confirmation type", /Special/],
+    ["1. confirmation type (plan in header)", /\*Enrollment Confirmation - PREMIUM\*/],
     ["2. full name", /Priya Sharma/],
     ["3. date of birth", /20-May-1998/],
-    ["4. address incl. pincode", /560038/],
+    ["4. address incl. pincode", /Pincode : 560038/],
     ["5. email", /priya@example\.com/],
     ["6. mobile", /9876543210/],
-    ["7. program", /Combo Pack/],
-    ["8. plan (+ combo)", /Premium.*Double Shot/],
-    ["9. final approved fee (+ concession)", /Final Approved Fee: ₹87,999\.00/],
-    ["9b. concession shown", /Concession: − ₹2,000\.00/],
-    ["10. commencing date", /01-Sep-2026/],
-    ["11. payment schedule", /Instalment 1: ₹43,999\.50 — due 01-Sep-2026/],
-    ["12. bank details", /Account Name: ProITbridge/],
+    ["7. program", /Advanced Data Analytics \+ Advanced Data Science and AI \+ Gen AI & Agentic AI/],
+    ["8. plan (+ combo)", /Double Shot.*"PREMIUM"/],
+    ["9. final approved fee (house style)", /Course Fee : \*INR\.87,999\/-\*/],
+    ["9b. concession shown", /Concession : \*INR\.2,000\/-\* \(Standard Fee INR\.89,999\/-\)/],
+    ["10. commencing date (long)", /1st September 2026 \(\w+day\)/],
+    ["11. payment schedule", /Instalment 1: INR\.43,999\.50\/- — due 01-Sep-2026/],
+    ["12. bank details (real Kotak)", /A\/C NO: 8055242956/],
     ["13. screenshot + Txn ID instruction", /Transaction ID/],
   ];
   for (const [label, re] of checks) {

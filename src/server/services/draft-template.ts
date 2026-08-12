@@ -3,25 +3,23 @@
  * is unit-testable and reusable by the Super Admin live preview. The template body and
  * bank details are CONFIGURATION (SystemConfig); this module only renders.
  *
- * Placeholder syntax: {{dotted.key}}. Values are pre-formatted strings (money via
- * formatINR, dates DD-MMM-YYYY). Substitution is safe: `{{`/`}}` are stripped from
- * values so a value can never inject another placeholder, and unknown keys render empty.
+ * The default matches ProITbridge's real customer-facing WhatsApp message ("house
+ * style"): INR.84,999/- money, "11th August 2026 (Tuesday)" dates, *bold* markers, the
+ * plan in the header, and the full Kotak bank block. This is a deliberate exception to
+ * the app's standard display convention (NFR-14) — the draft is a customer message, not
+ * an app screen. Everything is Super-Admin-editable.
  */
 import { Program, Plan, ComboMode, ConcessionStatus } from "@prisma/client";
-import { formatINR, formatDate } from "@/lib/format";
+import { formatDraftAmount, formatDate, formatDateLong } from "@/lib/format";
 import { renderTemplate } from "@/lib/template";
 
 export { renderTemplate };
 
 export const PROGRAM_LABEL: Record<Program, string> = {
-  DATA_ANALYST: "Data Analyst",
-  ADV_DATA_SCIENCE_AI: "Advanced Data Science & AI",
-  AGENTIC_AI_GENAI: "Agentic AI + GenAI",
-  COMBO_ALL_THREE: "Combo Pack – All Three",
-};
-const PLAN_LABEL: Record<Plan, string> = {
-  ADVANCED: "Advanced (Group Mentoring)",
-  PREMIUM: "Premium (One-on-One Mentorship)",
+  DATA_ANALYST: "Advanced Data Analytics",
+  ADV_DATA_SCIENCE_AI: "Advanced Data Science and AI",
+  AGENTIC_AI_GENAI: "Gen AI & Agentic AI",
+  COMBO_ALL_THREE: "Advanced Data Analytics + Advanced Data Science and AI + Gen AI & Agentic AI Program",
 };
 const COMBO_LABEL: Record<ComboMode, string> = {
   SINGLE_SHOT: "Single Shot",
@@ -72,7 +70,7 @@ export interface DraftContextInput {
 function formatScheduleLines(schedule: { number: number; amount: string; dueDate: string }[]): string {
   if (schedule.length === 0) return "  (to be confirmed)";
   return schedule
-    .map((s) => `  Instalment ${s.number}: ${formatINR(s.amount)} — due ${formatDate(s.dueDate)}`)
+    .map((s) => `  Instalment ${s.number}: ${formatDraftAmount(s.amount)} — due ${formatDate(s.dueDate)}`)
     .join("\n");
 }
 
@@ -92,16 +90,20 @@ export function buildDraftContext(input: DraftContextInput): Record<string, stri
     confirmation_type: special ? "Special" : "Regular",
     "learner.full_name": lead.fullName ?? "",
     "learner.dob": lead.dob ? formatDate(lead.dob) : "",
-    "learner.address_full": `${lead.doorNo ?? ""} ${lead.street ?? ""}, ${lead.address ?? ""}, ${lead.district ?? ""}, ${lead.state ?? ""} - ${lead.pincode ?? ""}`.replace(/\s+/g, " ").trim(),
+    "learner.address_full": `${lead.doorNo ?? ""} ${lead.street ?? ""}, ${lead.address ?? ""}, ${lead.district ?? ""}, ${lead.state ?? ""}`.replace(/\s+/g, " ").replace(/\s+,/g, ",").trim(),
+    "learner.pincode": lead.pincode ?? "",
     "learner.email": lead.email ?? "",
     "learner.mobile": lead.mobile ?? "",
     "enrollment.program": PROGRAM_LABEL[e.program],
-    "enrollment.plan": PLAN_LABEL[e.plan],
+    "enrollment.plan": e.plan,
+    "enrollment.plan_upper": e.plan,
     "enrollment.combo_suffix": e.comboMode ? ` — ${COMBO_LABEL[e.comboMode]}` : "",
-    "enrollment.commencing_date": e.commencingDate ? formatDate(e.commencingDate) : "To be confirmed",
-    "enrollment.standard_fee": formatINR(e.standardFee),
-    "enrollment.concession_line": special ? `• Concession: − ${formatINR(e.concessionAmount)}\n` : "",
-    "enrollment.final_approved_fee": formatINR(e.finalApprovedFee),
+    "enrollment.commencing_date": e.commencingDate ? formatDateLong(e.commencingDate) : "To be confirmed",
+    "enrollment.standard_fee": formatDraftAmount(e.standardFee),
+    "enrollment.concession_line": special
+      ? `Concession : *${formatDraftAmount(e.concessionAmount)}* (Standard Fee ${formatDraftAmount(e.standardFee)})\n`
+      : "",
+    "enrollment.final_approved_fee": formatDraftAmount(e.finalApprovedFee),
     schedule: formatScheduleLines(input.schedule),
     bank_details: input.bankDetails,
     instruction: input.instruction,
@@ -109,41 +111,37 @@ export function buildDraftContext(input: DraftContextInput): Record<string, stri
 }
 
 /** The default payment-draft template (seeded into SystemConfig; editable by SA). */
-export const DEFAULT_DRAFT_TEMPLATE = `ProITbridge — Enrollment Confirmation ({{confirmation_type}})
+export const DEFAULT_DRAFT_TEMPLATE = `*Enrollment Confirmation - {{enrollment.plan_upper}}*
 
-Dear {{learner.full_name}},
+Full Name : {{learner.full_name}}
+DOB : {{learner.dob}}
+Full Address : {{learner.address_full}}
+Pincode : {{learner.pincode}}
+Email ID : {{learner.email}}
+Mobile No : {{learner.mobile}}
 
-Thank you for enrolling with ProITbridge. Please find your enrollment details below.
+Program Name : *{{enrollment.program}}{{enrollment.combo_suffix}} "{{enrollment.plan_upper}}"*
 
-Learner details
-• Name: {{learner.full_name}}
-• Date of Birth: {{learner.dob}}
-• Address: {{learner.address_full}}
-• Email: {{learner.email}}
-• Mobile: {{learner.mobile}}
+Course Fee : *{{enrollment.final_approved_fee}}*
+{{enrollment.concession_line}}Commencing Date : *{{enrollment.commencing_date}}*
 
-Program
-• Program: {{enrollment.program}}
-• Plan: {{enrollment.plan}}{{enrollment.combo_suffix}}
-• Commencing Date: {{enrollment.commencing_date}}
-
-Fee
-• Standard Fee: {{enrollment.standard_fee}}
-{{enrollment.concession_line}}• Final Approved Fee: {{enrollment.final_approved_fee}}
-
-Payment Schedule
+*Payment Schedule:*
 {{schedule}}
 
-Payment Details
+*Payment Details:*
+
 {{bank_details}}
 
-{{instruction}}`;
+Note: *{{instruction}}*
 
-export const DEFAULT_BANK_DETAILS = `Account Name: ProITbridge
-Account No.: 000000000000
-IFSC: XXXX0000000
-Bank: (configure in Super Admin → Templates)
-UPI: proitbridge@upi`;
+Thank you`;
+
+export const DEFAULT_BANK_DETAILS = `Account Name: PROITBRIDGE OPC PVT LTD
+BANK NAME: KOTAK MAHINDRA BANK
+A/C NO: 8055242956
+IFSC CODE: KKBK0008112
+BRANCH NAME: HSR Layout Main Branch
+MICR Code: 560485063`;
 
 export const DEFAULT_DRAFT_INSTRUCTION =
-  "After each payment, please share the payment screenshot along with the Transaction ID (UTR) so we can verify and confirm it.";
+  "Please do share the screenshot after the payment with the Transaction ID.";
