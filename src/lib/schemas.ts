@@ -3,7 +3,7 @@
  * validation is the control; client validation is convenience only. FR-SEC-27+.
  */
 import { z } from "zod";
-import { Role, Program, Plan, ComboMode, ConcessionThresholdType, PaymentMethod } from "@prisma/client";
+import { Role, Program, Plan, ComboMode, ConcessionThresholdType, PaymentMethod, AuditStatus, PaymentType } from "@prisma/client";
 import { PASSWORD_POLICY } from "@/lib/constants";
 
 const strongPassword = z
@@ -225,4 +225,42 @@ export const capturePaymentSchema = z.object({
   }),
   varianceReason: z.string().trim().max(1000).optional(),
   manualEntryNoOcr: z.boolean().default(false),
+});
+
+// ── Phase 7: L1 audit decisions ───────────────────────────────────────────────
+
+export const paymentIdSchema = z.object({ paymentId: z.string().min(1) });
+
+export const approvePaymentSchema = z.object({
+  paymentId: z.string().min(1),
+  confirmations: z.object({
+    amountMatches: z.boolean(),
+    dateMatches: z.boolean(),
+    transactionIdMatches: z.boolean(),
+  }),
+  varianceReason: z.string().trim().max(1000).optional(),
+});
+
+export const auditDecisionSchema = z.object({
+  paymentId: z.string().min(1),
+  reasonCode: z.string().trim().max(120).optional(),
+  comment: z.string().trim().min(3, "A reason is required for this decision."),
+});
+
+export const bulkApproveSchema = z.object({
+  paymentIds: z.array(z.string().min(1)).min(1).max(200),
+});
+
+export const correctResubmitSchema = z.object({
+  paymentId: z.string().min(1),
+  receivedAmount: money2.optional(),
+  paymentDate: z.string().datetime().optional(),
+  transactionId: z.string().trim().min(4).optional(),
+});
+
+export const auditFilterSchema = z.object({
+  status: z.nativeEnum(AuditStatus).optional(),
+  paymentType: z.nativeEnum(PaymentType).optional(),
+  salespersonId: z.string().optional(),
+  search: z.string().optional(),
 });

@@ -121,7 +121,7 @@ describe("#4 — a signed URL past its expiry fails", () => {
     console.log(`  valid token accepted: ${verifyProofToken(row.id, valid)} | expired token accepted: ${verifyProofToken(row.id, expired)}`);
     expect(verifyProofToken(row.id, valid)).toBe(true);
     expect(verifyProofToken(row.id, expired)).toBe(false); // → route returns 403
-    expect(verifyProofToken(row.id, valid.replace(/.$/, "0"))).toBe(false); // tampered
+    expect(verifyProofToken(row.id, valid + "a")).toBe(false); // tampered
   });
 });
 

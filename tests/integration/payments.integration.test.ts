@@ -162,6 +162,6 @@ describe("#5 — signed URL: ownership + expiry (FR-SEC-21)", () => {
     const expired = signProofToken(proofRow.id, Date.now() - 1_000);
     expect(verifyProofToken(proofRow.id, valid)).toBe(true);
     expect(verifyProofToken(proofRow.id, expired)).toBe(false);
-    expect(verifyProofToken(proofRow.id, valid.replace(/.$/, "0"))).toBe(false); // tampered
+    expect(verifyProofToken(proofRow.id, valid + "a")).toBe(false); // tampered
   });
 });
