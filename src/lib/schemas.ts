@@ -363,3 +363,16 @@ export const configSetSchema = z.object({
 });
 
 export const recordSearchSchema = z.object({ query: z.string().trim().max(120) });
+
+// ── Automation, notifications, follow-ups, handover (Phase 10) ─────────────────
+
+export const followUpCreateSchema = z.object({
+  leadId: z.string().min(1),
+  dueDate: z.string().min(1),
+  description: z.string().trim().min(1, "Describe the follow-up.").max(500),
+});
+
+export const taskIdSchema = z.object({ taskId: z.string().min(1) });
+export const notificationIdSchema = z.object({ notificationId: z.string().min(1) });
+export const notificationPrefSchema = z.object({ type: z.string().min(1), emailEnabled: z.boolean() });
+export const handoverEnrollmentSchema = z.object({ enrollmentId: z.string().min(1) });

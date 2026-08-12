@@ -467,6 +467,35 @@ model SystemConfig {
   @@map("system_config")
 }
 
+/// A durable, idempotent record of one job execution (Phase 10 automation engine). The
+/// UNIQUE `dedupe_key` — job + entity + IST date — is what makes "run the daily job
+/// twice" send exactly one reminder / perform exactly one transfer (FR job idempotency).
+model JobRun {
+  id        String   @id @default(cuid()) @map("job_run_id")
+  jobName   String   @map("job_name")
+  dedupeKey String   @unique @map("dedupe_key")
+  status    String   @default("SUCCESS")
+  detail    Json?
+  ranAt     DateTime @default(now()) @map("ran_at")
+
+  @@index([jobName, ranAt])
+  @@map("job_run")
+}
+
+/// Per-user, per-type email preference (FR-SAL-58..66). In-app delivery is always on;
+/// email is on by default and can be switched off per notification type. A missing row
+/// means "email enabled".
+model NotificationPreference {
+  id           String  @id @default(cuid()) @map("pref_id")
+  userId       String  @map("user_id")
+  type         String
+  emailEnabled Boolean @default(true) @map("email_enabled")
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@map("notification_preference")
+}
+
 model SecurityEvent {
   id        String   @id @default(cuid()) @map("event_id")
   eventType String   @map("event_type")

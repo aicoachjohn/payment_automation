@@ -1,11 +1,10 @@
 # Session Handoff — ProITbridge Build
 
 **Read this, then `CLAUDE.md` (constitution), then the two memory files, before writing code.**
-Last completed: **Phase 9** (Super Admin Console & Audit Trail UI). Working tree: commit at
-end of phase. Next: **Phase 10 — Automation Engine** (pack: search "PHASE 10"; FRD §5.8–5.10:
-15-day rule, reminders/notifications, Operations handover). Phase 9 left hooks for it:
-`OVERRIDE_DEADLINE_EXTENSION` / `OVERRIDE_OPS_TRANSFER_REVERSAL` overrides bump/void
-`FollowUpTask` / `OperationsHandover`; the notification service already queues rows.
+Last completed: **Phase 10** (Automation Engine). Working tree: commit at end of phase.
+Next: **Phase 11 — Payment Integrity & Reconciliation** (pack: search "PHASE 11"; FRD §13,
+FR-REC-01..). Money invariants (Decimal, computed totals, unique Txn ID) and the reconciliation
+tooling — most of the primitives already exist in `src/server/money` + the finance services.
 
 ---
 
@@ -56,11 +55,17 @@ Integration tests import services via `await import(...)` and use `loadEnv()` fr
 Seed password `ChangeMe#123` (super admin's was changed to `SuperAdmin#2026` during manual
 verification; `must_change_password` true for the rest).
 
-## Testing status (all green at Phase 9)
+## Testing status (all green at Phase 10)
 
-- **238 unit + 93 integration** pass; lint/typecheck/build clean.
-  (Phase 9 added `phase9.verify.test.ts` [6 checks], `audit-completeness.test.ts` [the
-  20-signature FR-AUD-01 proof], and `overrides.integration.test.ts`.)
+- **247 unit + 105 integration** pass; lint/typecheck/build clean.
+  (Phase 10 added `ist.test.ts` [pure IST boundary math], `automation.integration.test.ts`
+  [the 5 time-travel verify checks], `handover.integration.test.ts` [missing-field + 5-party
+  transfer], `notifications.integration.test.ts`.)
+- **Time-travel pattern**: `runDailyAutomation(now)` takes `now`; seed an approval then pin
+  its `auditedAt` via prisma to control the countdown anchor. Idempotency is real DB state
+  (`JobRun.dedupeKey`), so `beforeEach` clears this test's job rows.
+- The **approved-payment immutability trigger** blocks changing an approved payment's
+  Txn ID — clear `locked` first if a test must simulate a missing-Txn-ID state.
 - **Append-only tables can't be cleaned up by tests** — `super_admin_activity` and
   `audit_trail` rows accumulate across runs BY DESIGN (UPDATE/DELETE revoked from the app
   role). Assertions use existence / `>=`, never exact counts, and are scoped by
@@ -113,7 +118,29 @@ verification; `must_change_password` true for the rest).
 - Routes: `(superadmin)/admin` overview, `/overrides`, `/activity`, `/audit`, `/records`,
   `/records/[paymentId]`, `/settings`; `/api/admin/audit/export`.
 
-## What exists (services you'll reuse in Phase 10)
+### Phase 10 (Automation) — what landed, for reuse
+
+- `src/server/jobs/runner.ts` — `runOnce(job, dedupeKey, fn)`: durable idempotency on
+  Postgres (`JobRun`, unique `dedupeKey`), NO Redis. Claims the key before running, so a
+  double tick sends nothing twice.
+- `src/server/services/automation.ts` — `runDailyAutomation(now)` (the single tick),
+  `downPaymentCountdowns(actor)`; the 15-day rule (reminders on config `reminder_days`
+  [3,7,10,13,14], Day-13 alert, end-of-Day-15 IST auto-transfer to Operations), stale
+  nudges (FR-SAL-58/59), follow-up-due + ageing escalation. IST math is pure in
+  `src/lib/ist.ts` (`downPaymentDeadline`, `daysSinceIst`, …).
+- `src/server/notifications/` — `notifyUser` now writes an IN_APP row ALWAYS and emails
+  only when the per-type preference allows (`NotificationPreference`); `center.ts` is the
+  in-app centre (list/unread/markRead) + preferences. Route `/notifications`.
+- `src/server/services/handover.ts` — `buildHandoverSnapshot` (validate + name exact
+  missing fields), `performHandover` (MANUAL → "Handover Successfully Sent."), `getHandover`,
+  `listHandovers`. Viewer `/handover/[id]`, list `/handover`, PDF `/api/handover/[id]/pdf`.
+- `src/server/services/follow-ups.ts` — manual tasks + `myPendingActions`.
+- Trigger the tick: `/admin/jobs` (button) or `POST /api/jobs/tick` (SA session or
+  `x-cron-secret` == `CRON_SECRET`). New config keys are fallback-driven (not seeded):
+  `reminder_days`, `down_payment_window_days`, `basic_incomplete_hours`,
+  `draft_no_payment_hours`, `learner_reminders_enabled`.
+
+## What exists (services you'll reuse in Phase 11)
 
 - `src/server/services/finance-visibility.ts` — **THE single predicate**
   `financeVisiblePaymentWhere()` / `isVisibleToFinance()` = `APPROVED && !voided`

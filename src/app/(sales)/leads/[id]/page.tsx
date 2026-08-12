@@ -4,10 +4,12 @@ import { requireRoles } from "@/server/auth/guard";
 import { getLeadForActor } from "@/server/services/leads";
 import { draftGenerationBlockers, listDraftVersions, getDraftConfig } from "@/server/services/draft";
 import { listPaymentsForLead } from "@/server/services/payments";
+import { listFollowUpsForLead } from "@/server/services/follow-ups";
 import { AuthorizationError, hasPermission } from "@/server/auth/permissions";
 import { LeadDetailClient, type LeadDetail } from "./lead-detail-client";
 import { DraftPanel } from "./draft-panel";
 import { PaymentPanel } from "./payment-panel";
+import { AutomationPanel } from "./automation-panel";
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { actor } = await requireRoles([Role.SALESPERSON, Role.SALES_MANAGER]);
@@ -58,11 +60,12 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       : null,
   };
 
-  const [blockers, versions, config, paymentData] = await Promise.all([
+  const [blockers, versions, config, paymentData, followUps] = await Promise.all([
     draftGenerationBlockers(id, actor),
     listDraftVersions(actor, id),
     getDraftConfig(),
     listPaymentsForLead(actor, id),
+    listFollowUpsForLead(actor, id),
   ]);
 
   return (
@@ -88,6 +91,11 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           finalApprovedFee={paymentData.finalApprovedFee}
         />
       )}
+      <AutomationPanel
+        leadId={id}
+        enrollmentId={e?.id ?? null}
+        followUps={followUps.map((t) => ({ id: t.id, description: t.description, dueDate: t.dueDate, overdue: t.overdue }))}
+      />
     </div>
   );
 }

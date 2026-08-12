@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Role, LeadStatus, Program, Plan } from "@prisma/client";
 import { requireRoles } from "@/server/auth/guard";
 import { dashboardSummary, listLeads } from "@/server/services/leads";
+import { downPaymentCountdowns } from "@/server/services/automation";
+import { myPendingActions } from "@/server/services/follow-ups";
 import { formatINR, formatDate } from "@/lib/format";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -40,9 +42,11 @@ export default async function SalesHome({
     salespersonId: sp.salespersonId || undefined,
   };
 
-  const [summary, leads] = await Promise.all([
+  const [summary, leads, countdowns, pending] = await Promise.all([
     dashboardSummary(actor, filters),
     listLeads(actor, filters),
+    downPaymentCountdowns(actor),
+    myPendingActions(actor),
   ]);
   const isManager = user.role === Role.SALES_MANAGER;
 
@@ -70,6 +74,45 @@ export default async function SalesHome({
         <Tile label="Corrections Required" value={summary.correctionsRequired} href="/sales" accent={summary.correctionsRequired > 0} />
         <Tile label="Collected (this month)" value={formatINR(summary.totalCollectedThisMonth)} href="/sales" />
       </div>
+
+      {(countdowns.length > 0 || pending.length > 0) && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* 15-day down-payment countdowns (FR-SAL-50) */}
+          <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+            <h2 className="mb-2 text-sm font-semibold">Down-payment deadlines</h2>
+            {countdowns.length === 0 ? (
+              <p className="text-sm text-slate-500">None active.</p>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {countdowns.map((c) => (
+                  <li key={c.leadId} className="flex items-center justify-between gap-2">
+                    <Link href={`/leads/${c.leadId}`} className="hover:underline">{c.learnerName}</Link>
+                    <span className={c.overdue ? "text-red-600" : c.daysRemaining <= 2 ? "text-amber-600" : "text-slate-500"}>
+                      {c.overdue ? "Overdue" : `${c.daysRemaining} day(s) left`} · {formatDate(c.deadline)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {/* My Pending Actions (FR-SAL-66) */}
+          <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+            <h2 className="mb-2 text-sm font-semibold">My pending actions</h2>
+            {pending.length === 0 ? (
+              <p className="text-sm text-slate-500">Nothing due.</p>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {pending.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-2">
+                    <Link href={`/leads/${t.leadId}`} className="hover:underline">{t.learnerName}: {t.description}</Link>
+                    <span className={t.overdue ? "text-red-600" : "text-slate-500"}>{formatDate(t.dueDate)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       <form method="GET" className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
         <label className="flex flex-col gap-1 text-xs text-slate-500">Search

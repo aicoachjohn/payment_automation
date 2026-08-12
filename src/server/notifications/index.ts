@@ -63,9 +63,20 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
 }
 
 /**
- * Record an in-app notification for a user and (best-effort) email it. Used for
- * security alerts: Super Admin login → Rajesh, lockout → Super Admin, break-glass →
- * primary Super Admin + Rajesh.
+ * Whether EMAIL delivery is enabled for a user + notification type (FR-SAL-58..66). In-app
+ * delivery is ALWAYS on; email is on by default and a preference row can switch it off.
+ */
+export async function isEmailEnabled(userId: string, type: string): Promise<boolean> {
+  const pref = await db.notificationPreference.findUnique({ where: { userId_type: { userId, type } } });
+  return pref ? pref.emailEnabled : true;
+}
+
+/**
+ * Deliver a notification. An IN_APP row is ALWAYS written (it appears in the in-app
+ * centre); EMAIL is additionally sent when the user's preference for this type allows it
+ * and an address is known. Best-effort: a failed email marks the row FAILED (surfaced on
+ * the Super Admin workflow-health panel, FR-SA-04) but never throws. WhatsApp stays behind
+ * the `whatsapp_enabled` flag pending decision Q-01 and is not delivered here.
  */
 export async function notifyUser(args: {
   recipientId: string;
@@ -76,20 +87,25 @@ export async function notifyUser(args: {
   relatedEntityType?: string;
   relatedEntityId?: string;
 }): Promise<void> {
-  await db.notification.create({
+  const notif = await db.notification.create({
     data: {
       recipientId: args.recipientId,
       type: args.type,
-      channel: "EMAIL",
+      channel: "IN_APP",
       subject: args.subject,
       body: args.body,
       relatedEntityType: args.relatedEntityType ?? null,
       relatedEntityId: args.relatedEntityId ?? null,
-      status: "SENT",
-      sentAt: new Date(),
+      status: "DELIVERED",
     },
   });
-  if (args.recipientEmail) {
-    await sendEmail({ to: args.recipientEmail, subject: args.subject, body: args.body });
+
+  if (args.recipientEmail && (await isEmailEnabled(args.recipientId, args.type))) {
+    try {
+      await sendEmail({ to: args.recipientEmail, subject: args.subject, body: args.body });
+      await db.notification.update({ where: { id: notif.id }, data: { channel: "IN_APP+EMAIL", sentAt: new Date() } });
+    } catch (e) {
+      await db.notification.update({ where: { id: notif.id }, data: { status: "FAILED", failureReason: (e as Error).message.slice(0, 200) } });
+    }
   }
 }

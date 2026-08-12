@@ -6,7 +6,9 @@ import { overrideInputSchema, configSetSchema, recordSearchSchema } from "@/lib/
 import { performOverride, describeOverride, OverrideError, type OverrideInput } from "@/server/services/overrides";
 import { setConfig } from "@/server/services/system-config";
 import { findRecords } from "@/server/services/admin-console";
+import { runDailyAutomation } from "@/server/services/automation";
 import { AuthorizationError } from "@/server/auth/permissions";
+import { z } from "zod";
 
 /**
  * Super Admin console actions. Every override routes through the ONE performOverride()
@@ -61,6 +63,15 @@ export const setConfigAction = withPermission("config:write")
     await setConfig(ctx.actor, parsedInput.key, value, parsedInput.description);
     revalidatePath("/admin/settings");
     return { ok: true as const };
+  });
+
+/** Run the daily automation tick now (reminders, deadline transfers, nudges). Idempotent. */
+export const runAutomationAction = withPermission("config:write")
+  .schema(z.object({}))
+  .action(async () => {
+    const summary = await runDailyAutomation(new Date());
+    revalidatePath("/admin/jobs");
+    return { ok: true as const, summary };
   });
 
 /** Search leads/payments for the record browser (FR-SA-03). Read-only. */
