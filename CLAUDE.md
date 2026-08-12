@@ -232,7 +232,7 @@ Update this checklist at the end of every phase.
 - [x] **Phase 1** — Data Model, Money & Audit Core
 - [x] **Phase 2** — Auth, RBAC & Security Baseline
 - [x] **Phase 3** — Pricing Master & Fee Engine
-- [ ] **Phase 4** — Sales: Leads & Basic Details
+- [x] **Phase 4** — Sales: Leads & Basic Details
 - [ ] **Phase 5** — Automatic Payment Draft Generator
 - [ ] **Phase 6** — Payment Capture, Proof Upload & OCR
 - [ ] **Phase 7** — Data Management Dashboard (L1 Audit)

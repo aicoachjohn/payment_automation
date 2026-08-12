@@ -1,15 +1,130 @@
+import Link from "next/link";
+import { Role, LeadStatus, Program, Plan } from "@prisma/client";
 import { requireRoles } from "@/server/auth/guard";
-import { Role } from "@prisma/client";
+import { dashboardSummary, listLeads } from "@/server/services/leads";
+import { formatINR, formatDate } from "@/lib/format";
 
-export default async function SalesHome() {
-  const { user } = await requireRoles([Role.SALESPERSON, Role.SALES_MANAGER]);
+const STATUS_LABEL: Record<string, string> = {
+  NEW_LEAD: "New", INTERESTED: "Interested", BASIC_DETAILS_PENDING: "Details pending",
+  BASIC_DETAILS_RECEIVED: "Details received", PAYMENT_DRAFT_GENERATED: "Draft generated",
+  PAYMENT_PENDING: "Payment pending", HOLDING_OR_STARTING_RECEIVED: "Holding received",
+  DOWN_PAYMENT_PENDING: "Down payment pending", DOWN_PAYMENT_RECEIVED: "Down payment received",
+  FINAL_PAYMENT_PENDING: "Final payment pending", FULLY_PAID: "Fully paid",
+  ENROLLMENT_COMPLETED: "Completed", OPERATIONS_HANDOVER: "Handover",
+};
+
+function Tile({ label, value, href, accent }: { label: string; value: string | number; href: string; accent?: boolean }) {
   return (
-    <section className="space-y-2">
-      <h1 className="text-2xl font-semibold">Sales Dashboard</h1>
-      <p className="text-slate-600 dark:text-slate-400">
-        Welcome, {user.name}. Lead capture, payment drafts and the daily pipeline are
-        built in Phases 4&ndash;6. This is the authenticated role shell (Phase 2).
-      </p>
+    <Link
+      href={href}
+      className={`rounded-lg border p-4 transition hover:shadow-sm ${accent ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950" : "border-slate-200 dark:border-slate-800"}`}
+    >
+      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-2xl font-semibold">{value}</div>
+    </Link>
+  );
+}
+
+export default async function SalesHome({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; program?: string; plan?: string; search?: string; salespersonId?: string }>;
+}) {
+  const { user, actor } = await requireRoles([Role.SALESPERSON, Role.SALES_MANAGER]);
+  const sp = await searchParams;
+  const filters = {
+    status: sp.status as LeadStatus | undefined,
+    program: sp.program as Program | undefined,
+    plan: sp.plan as Plan | undefined,
+    search: sp.search || undefined,
+    salespersonId: sp.salespersonId || undefined,
+  };
+
+  const [summary, leads] = await Promise.all([
+    dashboardSummary(actor, filters),
+    listLeads(actor, filters),
+  ]);
+  const isManager = user.role === Role.SALES_MANAGER;
+
+  return (
+    <section className="space-y-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Sales Dashboard</h1>
+          <p className="text-sm text-slate-500">
+            {isManager ? "All leads across the team." : "Your leads."} Welcome, {user.name}.
+          </p>
+        </div>
+        <Link href="/leads/new" className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900">
+          + New lead
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Tile label="Total Leads" value={summary.totalLeads} href="/sales" />
+        <Tile label="Basic Details Pending" value={summary.basicDetailsPending} href="/sales?status=BASIC_DETAILS_PENDING" />
+        <Tile label="Payment Pending" value={summary.paymentPending} href="/sales?status=PAYMENT_PENDING" />
+        <Tile label="Down Payment Pending" value={summary.downPaymentPending} href="/sales?status=DOWN_PAYMENT_PENDING" />
+        <Tile label="15-Day Deadline" value={summary.fifteenDayApproaching} href="/sales?status=DOWN_PAYMENT_PENDING" accent={summary.fifteenDayApproaching > 0} />
+        <Tile label="Fully Paid" value={summary.fullyPaid} href="/sales?status=FULLY_PAID" />
+        <Tile label="Corrections Required" value={summary.correctionsRequired} href="/sales" accent={summary.correctionsRequired > 0} />
+        <Tile label="Collected (this month)" value={formatINR(summary.totalCollectedThisMonth)} href="/sales" />
+      </div>
+
+      <form method="GET" className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+        <label className="flex flex-col gap-1 text-xs text-slate-500">Search
+          <input name="search" defaultValue={sp.search ?? ""} placeholder="Name, mobile, email" className="rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-slate-500">Status
+          <select name="status" defaultValue={sp.status ?? ""} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800">
+            <option value="">All</option>
+            {Object.keys(STATUS_LABEL).map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-slate-500">Program
+          <select name="program" defaultValue={sp.program ?? ""} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800">
+            <option value="">All</option>
+            {Object.values(Program).map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </label>
+        <button type="submit" className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Filter</button>
+        <Link href="/sales" className="text-sm text-slate-500 hover:underline">Clear</Link>
+      </form>
+
+      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-900">
+            <tr>
+              <th className="px-3 py-2">Name</th>
+              {isManager && <th className="px-3 py-2">Owner</th>}
+              <th className="px-3 py-2">Mobile</th>
+              <th className="px-3 py-2">Program / Plan</th>
+              <th className="px-3 py-2">Final Fee</th>
+              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {leads.length === 0 && (
+              <tr><td colSpan={isManager ? 7 : 6} className="px-3 py-6 text-center text-slate-400">No leads yet.</td></tr>
+            )}
+            {leads.map((l) => (
+              <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900">
+                <td className="px-3 py-2">
+                  <Link href={`/leads/${l.id}`} className="font-medium text-slate-900 hover:underline dark:text-slate-100">{l.fullName}</Link>
+                  {l.concessionStatus === "PENDING_APPROVAL" && <span className="ml-2 rounded bg-amber-100 px-1 text-xs text-amber-800">concession pending</span>}
+                </td>
+                {isManager && <td className="px-3 py-2 text-slate-500">{l.ownerName}</td>}
+                <td className="px-3 py-2 text-slate-500">{l.mobile ?? "—"}</td>
+                <td className="px-3 py-2">{l.program ?? "—"}{l.plan ? ` / ${l.plan}` : ""}</td>
+                <td className="px-3 py-2 font-mono text-xs">{l.finalApprovedFee ? formatINR(l.finalApprovedFee) : "—"}</td>
+                <td className="px-3 py-2">{STATUS_LABEL[l.status] ?? l.status}</td>
+                <td className="px-3 py-2 text-xs text-slate-500">{formatDate(l.createdAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

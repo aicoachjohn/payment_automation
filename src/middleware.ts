@@ -16,6 +16,7 @@ import { verifySessionCookie, SESSION_COOKIE } from "@/server/auth/cookie";
 
 const ROUTE_ACCESS: { prefix: string; roles: string[] }[] = [
   { prefix: "/sales", roles: ["SALESPERSON", "SALES_MANAGER"] },
+  { prefix: "/leads", roles: ["SALESPERSON", "SALES_MANAGER"] },
   { prefix: "/audit", roles: ["DATA_MGMT_AUDITOR"] },
   { prefix: "/finance", roles: ["FINANCE_REVIEWER"] },
   { prefix: "/admin", roles: ["SUPER_ADMIN"] },
@@ -45,5 +46,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/sales/:path*", "/audit/:path*", "/finance/:path*", "/admin/:path*"],
+  matcher: ["/sales/:path*", "/leads/:path*", "/audit/:path*", "/finance/:path*", "/admin/:path*"],
 };

@@ -109,3 +109,84 @@ export const concessionSchema = z.object({
   concessionValue: money2,
   reason: z.string().trim().min(3, "A reason is required for any concession."),
 });
+
+// ── Phase 4: leads, basic details, course & plan ──────────────────────────────
+
+/**
+ * The single validation message shown on ANY basic-details validation failure
+ * (FR-SAL-09) — verbatim from the FRD. Every field below carries it.
+ */
+export const BASIC_DETAILS_ERROR =
+  "The details must be the same in all places. Please enter the information correctly.";
+
+const err = { message: BASIC_DETAILS_ERROR };
+
+/** A valid past date (DOB). */
+const pastDate = z
+  .string()
+  .refine((s) => {
+    const d = new Date(s);
+    return !Number.isNaN(d.getTime()) && d.getTime() < Date.now();
+  }, err);
+
+export const basicDetailsSchema = z.object({
+  fullName: z.string(err).trim().min(2, err),
+  dob: pastDate,
+  doorNo: z.string(err).trim().min(1, err),
+  street: z.string(err).trim().min(1, err),
+  address: z.string(err).trim().min(1, err),
+  district: z.string(err).trim().min(1, err),
+  state: z.string(err).trim().min(1, err),
+  pincode: z.string(err).trim().regex(/^\d{6}$/, err),
+  email: z.string(err).trim().toLowerCase().email(err),
+  mobile: z
+    .string(err)
+    .trim()
+    .regex(/^(\+?\d{1,3}[- ]?)?\d{10}$/, err),
+  leadSource: z.string().trim().max(120).optional(),
+  remarks: z.string().trim().max(1000).optional(),
+});
+
+/** New-lead create: only name + salesperson are required up front (FR-SAL-07). */
+export const leadCreateSchema = z.object({
+  fullName: z.string().trim().min(2, "Enter the learner's name."),
+  mobile: z.string().trim().regex(/^(\+?\d{1,3}[- ]?)?\d{10}$/, "Enter a valid 10-digit mobile number.").optional(),
+  email: z.string().trim().toLowerCase().email("Enter a valid email address.").optional(),
+  leadSource: z.string().trim().max(120).optional(),
+});
+
+export const duplicateCheckSchema = z.object({
+  field: z.enum(["mobile", "email"]),
+  value: z.string().trim().min(1),
+});
+
+export const leadIdSchema = z.object({ leadId: z.string().min(1) });
+
+const courseSelectionObject = z.object({
+  program: z.nativeEnum(Program),
+  plan: z.nativeEnum(Plan),
+  comboMode: z.nativeEnum(ComboMode).nullish(),
+  commencingDate: z.string().datetime().nullish(),
+  batch: z.string().trim().max(120).nullish(),
+  courseStarted: z.boolean().optional(),
+});
+
+const comboRule = (v: { program: Program; comboMode?: ComboMode | null }) =>
+  v.program !== Program.COMBO_ALL_THREE || !!v.comboMode;
+const comboRuleOpts = {
+  message: "Choose Single Shot or Double Shot for the Combo Pack.",
+  path: ["comboMode"],
+};
+
+export const courseSelectionSchema = courseSelectionObject.refine(comboRule, comboRuleOpts);
+export const courseSelectionWithLeadSchema = leadIdSchema
+  .merge(courseSelectionObject)
+  .refine(comboRule, comboRuleOpts);
+
+export const concessionRequestSchema = leadIdSchema.merge(concessionSchema);
+
+export const concessionDecisionSchema = z.object({
+  leadId: z.string().min(1),
+  decision: z.enum(["APPROVE", "REJECT"]),
+  reason: z.string().trim().min(3, "A reason is required."),
+});
