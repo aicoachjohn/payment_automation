@@ -2,8 +2,10 @@ import { notFound } from "next/navigation";
 import { Role } from "@prisma/client";
 import { requireRoles } from "@/server/auth/guard";
 import { getLeadForActor } from "@/server/services/leads";
+import { draftGenerationBlockers, listDraftVersions, getDraftConfig } from "@/server/services/draft";
 import { AuthorizationError, hasPermission } from "@/server/auth/permissions";
 import { LeadDetailClient, type LeadDetail } from "./lead-detail-client";
+import { DraftPanel } from "./draft-panel";
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { actor } = await requireRoles([Role.SALESPERSON, Role.SALES_MANAGER]);
@@ -54,10 +56,27 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       : null,
   };
 
+  const [blockers, versions, config] = await Promise.all([
+    draftGenerationBlockers(id, actor),
+    listDraftVersions(actor, id),
+    getDraftConfig(),
+  ]);
+
   return (
-    <LeadDetailClient
-      lead={detail}
-      canApproveConcession={hasPermission(actor.role, "concession:approve")}
-    />
+    <div className="space-y-6">
+      <LeadDetailClient
+        lead={detail}
+        canApproveConcession={hasPermission(actor.role, "concession:approve")}
+      />
+      {detail.enrollment?.standardFee && (
+        <DraftPanel
+          leadId={id}
+          blockers={blockers}
+          versions={versions}
+          whatsappEnabled={config.whatsappEnabled}
+          learnerMobile={detail.mobile}
+        />
+      )}
+    </div>
   );
 }

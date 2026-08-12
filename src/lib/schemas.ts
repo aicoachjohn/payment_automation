@@ -190,3 +190,12 @@ export const concessionDecisionSchema = z.object({
   decision: z.enum(["APPROVE", "REJECT"]),
   reason: z.string().trim().min(3, "A reason is required."),
 });
+
+// ── Phase 5: payment draft & template ─────────────────────────────────────────
+
+export const draftTemplateSchema = z.object({
+  template: z.string().min(10).max(20_000).optional(),
+  bankDetails: z.string().max(4_000).optional(),
+  instruction: z.string().max(2_000).optional(),
+  whatsappEnabled: z.boolean().optional(),
+});

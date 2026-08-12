@@ -20,6 +20,7 @@ import {
   decideConcession,
   checkDuplicate,
 } from "@/server/services/leads";
+import { generateDraft, emailDraft } from "@/server/services/draft";
 
 export const createLeadAction = authActionClient
   .schema(leadCreateSchema)
@@ -77,5 +78,20 @@ export const decideConcessionAction = withPermission("concession:approve")
     await decideConcession(ctx.actor, parsedInput.leadId, parsedInput.decision, parsedInput.reason);
     revalidatePath(`/leads/${parsedInput.leadId}`);
     revalidatePath("/sales");
+    return { ok: true as const };
+  });
+
+export const generateDraftAction = authActionClient
+  .schema(leadIdSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const draft = await generateDraft(ctx.actor, parsedInput.leadId);
+    revalidatePath(`/leads/${parsedInput.leadId}`);
+    return { ok: true as const, ...draft };
+  });
+
+export const emailDraftAction = authActionClient
+  .schema(leadIdSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    await emailDraft(ctx.actor, parsedInput.leadId);
     return { ok: true as const };
   });

@@ -8,6 +8,11 @@
  */
 import { PrismaClient, Role, Program, Plan, PricingStatus } from "@prisma/client";
 import { hashPassword } from "../src/server/auth/password";
+import {
+  DEFAULT_DRAFT_TEMPLATE,
+  DEFAULT_BANK_DETAILS,
+  DEFAULT_DRAFT_INSTRUCTION,
+} from "../src/server/services/draft-template";
 
 const prisma = new PrismaClient();
 
@@ -115,6 +120,12 @@ async function seedSystemConfig(updatedBy: string): Promise<void> {
       value: ["Amount mismatch", "Transaction ID incorrect", "Proof unreadable", "Duplicate payment", "Wrong lead", "Details mismatch"],
       description: "Standard audit reason-code list used by the L1 audit (FR-ADM-09, FR-DM-17).",
     },
+    // Phase 5 — payment-draft template & bank details (configuration, FR-SAL-33, FR-ADM-06).
+    { key: "payment_draft_template", value: DEFAULT_DRAFT_TEMPLATE, description: "Payment-draft message body ({{placeholder}} syntax)." },
+    { key: "company_bank_details", value: DEFAULT_BANK_DETAILS, description: "Company bank / payment details shown in the payment draft." },
+    { key: "payment_draft_instruction", value: DEFAULT_DRAFT_INSTRUCTION, description: "Instruction to share the payment screenshot + Transaction ID." },
+    // Q-01 placeholder: WhatsApp send is OFF pending business decision (FR-SAL-37).
+    { key: "whatsapp_enabled", value: false, description: "Feature flag: show a wa.me WhatsApp send link on the draft (default OFF, Q-01)." },
   ];
 
   for (const c of defaults) {
