@@ -3,9 +3,11 @@ import { Role } from "@prisma/client";
 import { requireRoles } from "@/server/auth/guard";
 import { getLeadForActor } from "@/server/services/leads";
 import { draftGenerationBlockers, listDraftVersions, getDraftConfig } from "@/server/services/draft";
+import { listPaymentsForLead } from "@/server/services/payments";
 import { AuthorizationError, hasPermission } from "@/server/auth/permissions";
 import { LeadDetailClient, type LeadDetail } from "./lead-detail-client";
 import { DraftPanel } from "./draft-panel";
+import { PaymentPanel } from "./payment-panel";
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { actor } = await requireRoles([Role.SALESPERSON, Role.SALES_MANAGER]);
@@ -56,10 +58,11 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       : null,
   };
 
-  const [blockers, versions, config] = await Promise.all([
+  const [blockers, versions, config, paymentData] = await Promise.all([
     draftGenerationBlockers(id, actor),
     listDraftVersions(actor, id),
     getDraftConfig(),
+    listPaymentsForLead(actor, id),
   ]);
 
   return (
@@ -75,6 +78,14 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           versions={versions}
           whatsappEnabled={config.whatsappEnabled}
           learnerMobile={detail.mobile}
+        />
+      )}
+      {detail.enrollment?.feeLocked && (
+        <PaymentPanel
+          leadId={id}
+          payments={paymentData.payments}
+          balance={paymentData.balance}
+          finalApprovedFee={paymentData.finalApprovedFee}
         />
       )}
     </div>

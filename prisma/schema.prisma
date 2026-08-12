@@ -269,6 +269,7 @@ model Payment {
   auditComment    String?       @map("audit_comment")
   varianceReason  String?       @map("variance_reason")
   manualEntryNoOcr Boolean      @default(false) @map("manual_entry_no_ocr")
+  fieldSources    Json?         @map("field_sources")
   voided          Boolean       @default(false)
   voidedReason    String?       @map("voided_reason")
   locked          Boolean       @default(false)

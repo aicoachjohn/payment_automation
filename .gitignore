@@ -51,3 +51,6 @@ next-env.d.ts
 
 # prisma generated client (generated on install/build)
 /src/generated
+
+# payment proof local storage (dev)
+/.proof-storage

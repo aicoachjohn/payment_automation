@@ -3,7 +3,7 @@
  * validation is the control; client validation is convenience only. FR-SEC-27+.
  */
 import { z } from "zod";
-import { Role, Program, Plan, ComboMode, ConcessionThresholdType } from "@prisma/client";
+import { Role, Program, Plan, ComboMode, ConcessionThresholdType, PaymentMethod } from "@prisma/client";
 import { PASSWORD_POLICY } from "@/lib/constants";
 
 const strongPassword = z
@@ -198,4 +198,31 @@ export const draftTemplateSchema = z.object({
   bankDetails: z.string().max(4_000).optional(),
   instruction: z.string().max(2_000).optional(),
   whatsappEnabled: z.boolean().optional(),
+});
+
+// ── Phase 6: payment capture & proof ──────────────────────────────────────────
+
+export const proofIdSchema = z.object({ proofId: z.string().min(1) });
+
+export const capturePaymentSchema = z.object({
+  leadId: z.string().min(1),
+  proof: z.object({
+    key: z.string().min(1),
+    checksum: z.string().min(1),
+    fileType: z.string().min(1),
+    fileSize: z.number().int().nonnegative(),
+    originalFilename: z.string().min(1),
+  }),
+  receivedAmount: money2,
+  paymentDate: z.string().datetime(),
+  paymentMethod: z.nativeEnum(PaymentMethod),
+  transactionId: z.string().trim().min(4, "Enter the Transaction ID."),
+  confirmations: z.object({
+    receivedAmount: z.boolean(),
+    paymentDate: z.boolean(),
+    transactionId: z.boolean(),
+    paymentMethod: z.boolean(),
+  }),
+  varianceReason: z.string().trim().max(1000).optional(),
+  manualEntryNoOcr: z.boolean().default(false),
 });
