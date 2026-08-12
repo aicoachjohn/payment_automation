@@ -27,6 +27,7 @@ export type Permission =
   | "payment:audit"
   | "payment:reverse-audit"
   | "finance:read"
+  | "finance:query"
   | "customer:read"
   | "concession:create"
   | "concession:approve"
@@ -80,10 +81,14 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "audit:read:all",
     "report:read:all",
   ]),
-  // Finance is read-only BY DESIGN (BR-18) — every permission below is a read.
+  // Finance is read-only BY DESIGN on payment data (BR-18) — every permission below is
+  // a read, with ONE deliberate exception: `finance:query` (FR-FIN-10) lets Rajesh raise
+  // a question against a record. That write lands on a SEPARATE FinanceQuery entity and
+  // never touches any Payment row or financial figure, so the read-only guarantee holds.
   [Role.FINANCE_REVIEWER]: new Set<Permission>([
     "lead:read:all",
     "finance:read",
+    "finance:query",
     "customer:read",
     "pricing:read",
     "audit:read:all",
@@ -94,6 +99,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "lead:update:all",
     "payment:reverse-audit",
     "finance:read",
+    "finance:query",
     "customer:read",
     "concession:approve",
     "fee:unlock",

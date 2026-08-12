@@ -27,6 +27,9 @@ const EXPECTED: Record<Permission, Role[]> = {
   "payment:audit": [Role.DATA_MGMT_AUDITOR],
   "payment:reverse-audit": [Role.SUPER_ADMIN],
   "finance:read": [Role.SALES_MANAGER, Role.DATA_MGMT_AUDITOR, Role.FINANCE_REVIEWER, Role.SUPER_ADMIN],
+  // FR-FIN-10: raising a Finance Query is a write to a SEPARATE communication entity,
+  // never to payment data — the one deliberate non-payment write Finance may perform.
+  "finance:query": [Role.FINANCE_REVIEWER, Role.SUPER_ADMIN],
   "customer:read": [Role.SALESPERSON, Role.SALES_MANAGER, Role.DATA_MGMT_AUDITOR, Role.FINANCE_REVIEWER, Role.SUPER_ADMIN],
   "concession:create": [Role.SALESPERSON, Role.SALES_MANAGER],
   "concession:approve": [Role.SALES_MANAGER, Role.SUPER_ADMIN],
@@ -73,10 +76,19 @@ describe("permission matrix — walks every FRD §2.2 cell", () => {
 });
 
 describe("permission matrix — the inviolable invariants", () => {
-  it("FINANCE_REVIEWER has NO write permission of any kind (BR-18)", () => {
+  it("FINANCE_REVIEWER has NO write permission on payment/financial data (BR-18)", () => {
     for (const w of WRITE_PERMISSIONS) {
       expect(hasPermission(Role.FINANCE_REVIEWER, w)).toBe(false);
     }
+  });
+
+  it("the ONLY write Finance holds is finance:query, which never touches payment data (FR-FIN-10)", () => {
+    const financeWrites = ALL_PERMISSIONS.filter(
+      (p) => hasPermission(Role.FINANCE_REVIEWER, p) && !p.endsWith(":read") && !p.includes(":read:"),
+    );
+    expect(financeWrites).toEqual(["finance:query"]);
+    // and it is deliberately NOT in the payment-data WRITE_PERMISSIONS list above
+    expect(WRITE_PERMISSIONS).not.toContain("finance:query" as Permission);
   });
 
   it("`payment:edit-amount` does not exist as a permission anywhere (FR-SA-08, BR-24)", () => {

@@ -1,7 +1,9 @@
 # Session Handoff — ProITbridge Build
 
 **Read this, then `CLAUDE.md` (constitution), then the two memory files, before writing code.**
-Last completed: **Phase 7** (commit `f11e50c`). Working tree clean. Next: **Phase 8 — Finance Dashboard**.
+Last completed: **Phase 8** (Finance Dashboard). Working tree: commit at end of phase. Next:
+**Phase 9 — Super Admin Console & Audit Trail UI** (pack: search "PHASE 9"; FRD §8
+FR-SA-01..20, FR-ADM-01..10, FR-AUD-01..05, BR-23..26).
 
 ---
 
@@ -52,9 +54,11 @@ Integration tests import services via `await import(...)` and use `loadEnv()` fr
 Seed password `ChangeMe#123` (super admin's was changed to `SuperAdmin#2026` during manual
 verification; `must_change_password` true for the rest).
 
-## Testing status (all green at Phase 7)
+## Testing status (all green at Phase 8)
 
-- **232 unit + 59 integration** pass; lint/typecheck/build clean.
+- **238 unit + 81 integration** pass; lint/typecheck/build clean.
+  (Phase 8 added `finance.integration.test.ts` + `phase8.verify.test.ts`, and the
+  permissions matrix grew to 130 cases for the new `finance:query` permission.)
 - Each phase N has `tests/integration/phaseN.verify.test.ts` printing labeled proofs.
 - **Browser-tool caveat:** live UI verification is flaky in this environment (React
   hydration lag makes the FIRST form submit after a compile no-op; super-admin login needs a
@@ -78,33 +82,38 @@ verification; `must_change_password` true for the rest).
 - **Sessions**: DB-backed (`src/server/auth/session.ts`) + signed `jose` cookie; edge
   `src/middleware.ts` role-gates `/sales /leads /audit /finance /admin` (403 on wrong role).
 
-## What exists (services you'll reuse in Phase 8)
+## What exists (services you'll reuse in Phase 9)
 
 - `src/server/services/finance-visibility.ts` — **THE single predicate**
   `financeVisiblePaymentWhere()` / `isVisibleToFinance()` = `APPROVED && !voided`
-  (FR-DM-20, BR-15). **Every Finance read in Phase 8 MUST go through this.**
+  (FR-DM-20, BR-15). Every Finance read goes through this.
 - `src/server/money` — `calculateBalance` (approved, non-voided only, BR-22), `sum`, `round`, etc.
-- `src/server/services/audit-decisions.ts` — approve/correction/reject; approved payments are
-  immutable (service + DB trigger `prevent_approved_payment_edit`, FR-REC-09).
+- `src/server/services/audit-decisions.ts` — approve/correction/reject; `auditTimeline`
+  (read-only history, `audit:read:all`); approved payments immutable (service + DB trigger).
 - `src/server/services/payments.ts` — capture, proofs, `issueProofUrl` (signed), `getProofForActor`.
-- `src/components/shared/proof-viewer.tsx` — zoomable proof preview (reuse on Finance dashboard).
+- `src/server/audit` — `writeAudit(tx, …)` append-only writer (`audit_trail` / `super_admin_activity`
+  UPDATE/DELETE revoked). Phase 9's Audit Trail UI reads these tables.
+- Data model: `SuperAdminActivity` model already exists for Phase 9 override logging.
+- `src/components/shared/proof-viewer.tsx` — zoomable proof preview; `bar-chart.tsx` — dep-free a11y chart.
 - `src/server/services/leads.ts` — leads, `dashboardSummary`, `advanceLeadStatus` (FRD §3.4 pipeline).
-- Data model: 14 models + `Session`/`PasswordResetToken`; `Payment.fieldSources`. All money FK-RESTRICT.
 
-## NEXT: Phase 8 — Finance Dashboard (Rajesh, read-only)
+### Phase 8 (Finance) — what landed, for reuse
 
-Prompt is in the pack (search "PHASE 8"); FRD §7 (FR-FIN-01..26), BR-18. Key points:
-- **Finance is read-only BY DESIGN (BR-18)** — `FINANCE_REVIEWER` has no write permission of
-  any kind. Verify no exported Finance action mutates.
-- **Only APPROVED payments are visible** — build every read on
-  `financeVisiblePaymentWhere()` (the one predicate already exists; do not re-derive it).
-- Payment statement per lead/customer, month-to-date collection (holding + follow-up),
-  customer master (from the enter-once basic details, BR-02 — no re-typing), exports.
-- Reuse `ProofViewer` (read-only), `calculateBalance`, `formatINR`/`formatDate`.
-- Concession/special leads carry a visible marker (FR-SAL-30) on the Finance view too.
-- Build the `(finance)/finance` route (layout+guard already exist from Phase 2). Add tests
-  incl. a `phase8.verify.test.ts`; the pack's verify will re-check PENDING invisible /
-  APPROVED visible / Finance cannot write.
+- `src/server/services/finance.ts` — **reads only** (statement, tiles, customer master,
+  monthly summary, GST, outstanding, trend, `financePaymentDetail`, `customerPaymentHistory`,
+  `listSalespeople`). All on `financeVisiblePaymentWhere()`. Totals always recomputed, never stored.
+- `finance-queries.ts` (FR-FIN-10 thread, the ONE Finance write — to `FinanceQuery`, never a
+  Payment), `finance-export.ts` (CSV + PDF via pdf-lib, logs every export to `audit_trail`),
+  `finance-digest.ts` (FR-FIN-26, queues `notification` rows for Phase 10).
+- New permission `finance:query` (FINANCE_REVIEWER + SUPER_ADMIN). New models `FinanceQuery` /
+  `FinanceQueryComment` (migration `20260812134938_phase8_finance_query`, app-role grants included).
+- `src/lib/finance-columns.ts` — column specs shared by the on-screen tables AND the CSV export
+  (guarantees FR-FIN-15 identical order). Client-safe (type-only import of the server row types).
+- Routes: `(finance)/finance` (statement + tiles), `/customers`, `/collections`, `/queries`,
+  `/payments/[paymentId]` (read-only audit history + raise-query).
+- **BR-15 nuance settled:** the statement + ALL totals are approved-only; non-approved payments
+  appear ONLY in the customer history expansion and the payment-detail audit timeline (badged,
+  `countedInTotals:false`) — that is the FR-FIN-09/16 transparency the verify #5 relies on.
 
 ## Business decisions still open (config-driven placeholders, `TODO-BUSINESS`)
 

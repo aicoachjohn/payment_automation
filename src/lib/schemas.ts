@@ -264,3 +264,59 @@ export const auditFilterSchema = z.object({
   salespersonId: z.string().optional(),
   search: z.string().optional(),
 });
+
+// ── Finance dashboard (Phase 8) ───────────────────────────────────────────────
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}/, "Use a YYYY-MM-DD date.");
+
+export const statementFilterSchema = z.object({
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+  paymentType: z.nativeEnum(PaymentType).optional(),
+  typeGroup: z.enum(["holding", "followup"]).optional(),
+  program: z.nativeEnum(Program).optional(),
+  plan: z.nativeEnum(Plan).optional(),
+  salespersonId: z.string().optional(),
+  search: z.string().optional(),
+});
+
+export const customerFilterSchema = z.object({
+  search: z.string().optional(),
+  program: z.nativeEnum(Program).optional(),
+  plan: z.nativeEnum(Plan).optional(),
+  salespersonId: z.string().optional(),
+  paymentStatus: z.enum(["FULLY_PAID", "PARTIAL", "UNPAID"]).optional(),
+  enrollmentStatus: z.string().optional(),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+});
+
+export const monthSelectSchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+});
+
+export const financeExportSchema = z.object({
+  report: z.enum(["statement", "customers", "outstanding", "monthly", "gst"]),
+  format: z.enum(["csv", "pdf"]),
+});
+
+export const financeQueryCreateSchema = z.object({
+  paymentId: z.string().min(1),
+  subject: z.string().trim().min(3, "Add a short subject.").max(140),
+  message: z.string().trim().min(3, "Write your question.").max(2000),
+});
+
+export const financeQueryCommentSchema = z.object({
+  queryId: z.string().min(1),
+  message: z.string().trim().min(1, "Write a reply.").max(2000),
+});
+
+export const financeQueryIdSchema = z.object({ queryId: z.string().min(1) });
+
+export const financeDigestSchema = z.object({
+  daily: z.boolean(),
+  monthly: z.boolean(),
+});
+
+export const enrollmentIdSchema = z.object({ enrollmentId: z.string().min(1) });

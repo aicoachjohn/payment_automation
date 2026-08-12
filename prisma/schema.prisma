@@ -113,6 +113,12 @@ enum HandoverType {
   AUTO_DAY15
 }
 
+enum FinanceQueryStatus {
+  OPEN
+  ANSWERED
+  RESOLVED
+}
+
 // ─────────────────────────────── Models ───────────────────────────────────
 
 model User {
@@ -276,6 +282,7 @@ model Payment {
 
   enrollment Enrollment     @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
   proofs     PaymentProof[]
+  financeQueries FinanceQuery[]
 
   @@unique([enrollmentId, paymentNumber])
   @@index([auditStatus])
@@ -468,4 +475,41 @@ model SecurityEvent {
   @@index([eventType, createdAt])
   @@index([userId])
   @@map("security_event")
+}
+
+/// Finance Query (FR-FIN-10). Rajesh (Finance) can raise a question against an
+/// approved payment record, threaded with comments, addressed to Nandhiya and the
+/// salesperson. It is a SEPARATE communication entity — it NEVER touches the Payment
+/// row, so Finance stays read-only on payment data (BR-18). The write here is to a
+/// query, not to any financial figure.
+model FinanceQuery {
+  id        String             @id @default(cuid()) @map("query_id")
+  paymentId String             @map("payment_id")
+  raisedBy  String             @map("raised_by")
+  subject   String
+  status    FinanceQueryStatus @default(OPEN)
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+
+  payment  Payment               @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  comments FinanceQueryComment[]
+
+  @@index([paymentId])
+  @@index([status])
+  @@index([raisedBy])
+  @@map("finance_query")
+}
+
+model FinanceQueryComment {
+  id         String   @id @default(cuid()) @map("comment_id")
+  queryId    String   @map("query_id")
+  authorId   String   @map("author_id")
+  authorRole Role     @map("author_role")
+  body       String   @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  query FinanceQuery @relation(fields: [queryId], references: [id], onDelete: Restrict)
+
+  @@index([queryId])
+  @@map("finance_query_comment")
 }
