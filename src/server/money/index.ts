@@ -12,6 +12,7 @@
  */
 import { Prisma } from "@prisma/client";
 import { AuditStatus } from "@prisma/client";
+import { formatINR as formatINRString } from "@/lib/format";
 
 export type Money = Prisma.Decimal;
 export type MoneyInput = Prisma.Decimal.Value; // string | number | Decimal
@@ -57,6 +58,35 @@ export function eq(a: MoneyInput, b: MoneyInput): boolean {
   return new D(a).equals(new D(b));
 }
 
+/** Divide, full precision (round at the boundary). */
+export function div(a: MoneyInput, b: MoneyInput): Money {
+  return new D(a).div(b);
+}
+
+/** `percent`% of `amount`, full precision (e.g. percentOf(24999, 10) = 2499.9). */
+export function percentOf(amount: MoneyInput, percent: MoneyInput): Money {
+  return new D(amount).times(new D(percent).div(100));
+}
+
+export function lt(a: MoneyInput, b: MoneyInput): boolean {
+  return new D(a).lt(b);
+}
+export function lte(a: MoneyInput, b: MoneyInput): boolean {
+  return new D(a).lte(b);
+}
+export function gt(a: MoneyInput, b: MoneyInput): boolean {
+  return new D(a).gt(b);
+}
+export function gte(a: MoneyInput, b: MoneyInput): boolean {
+  return new D(a).gte(b);
+}
+
+/** The smaller of two amounts. */
+export function min(a: MoneyInput, b: MoneyInput): Money {
+  const da = new D(a);
+  return da.lte(b) ? da : new D(b);
+}
+
 /**
  * Add GST to a base fee, returning the GST-inclusive amount. Full precision — the
  * inverse of `extractBase`. Round at the boundary when storing/displaying.
@@ -95,22 +125,8 @@ export function decomposeInclusive(
  * Rounds half-up to 2dp for display.
  */
 export function formatINR(value: MoneyInput): string {
-  const rounded = round(value);
-  const negative = rounded.isNegative();
-  const abs = rounded.abs();
-  const [intPart, decPartRaw] = abs.toFixed(2).split(".");
-  const decPart = decPartRaw ?? "00";
-
-  // Indian grouping: last 3 digits, then groups of 2.
-  let grouped: string;
-  if (intPart.length <= 3) {
-    grouped = intPart;
-  } else {
-    const last3 = intPart.slice(-3);
-    const rest = intPart.slice(0, -3);
-    grouped = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + last3;
-  }
-  return `${negative ? "-" : ""}₹${grouped}.${decPart}`;
+  // Round once (the money rule), then delegate to the client-safe grouping formatter.
+  return formatINRString(round(value).toFixed(2));
 }
 
 /** Minimal shape needed to decide whether a payment reduces the balance. */

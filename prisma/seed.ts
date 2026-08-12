@@ -98,6 +98,23 @@ async function seedSystemConfig(updatedBy: string): Promise<void> {
     { key: "superadmin_session_timeout_minutes", value: 15, description: "Inactivity session timeout for SUPER_ADMIN (NFR-07a)." },
     { key: "max_upload_mb", value: 10, description: "Maximum payment-proof upload size in MB (FR-SEC-22)." },
     { key: "duplicate_payment_window_hours", value: 24, description: "Window for detecting duplicate payment submissions." },
+    // Phase 3 — pricing/fee engine configuration (BR-13, NFR-16).
+    // Q-02 placeholder: ₹2,000 or 10% whichever is lower, per plan (TODO-BUSINESS).
+    {
+      key: "concession_threshold",
+      value: { ADVANCED: { amount: 2000, percent: 10 }, PREMIUM: { amount: 2000, percent: 10 } },
+      description: "Per-plan concession approval threshold: amount cap and percent cap; the lower applies (FR-ADM-05).",
+    },
+    // Q-05 placeholder: 40 / 40 / 20 default schedule (TODO-BUSINESS).
+    { key: "payment_schedule_default", value: [40, 40, 20], description: "Default instalment split (%) when no special arrangement applies." },
+    // Q-04 placeholder: Double Shot = 50 / 50 (TODO-BUSINESS).
+    { key: "double_shot_split", value: [50, 50], description: "Combo Double Shot instalment split (%)." },
+    { key: "single_shot_split", value: [100], description: "Combo Single Shot instalment split (%)." },
+    {
+      key: "audit_reason_codes",
+      value: ["Amount mismatch", "Transaction ID incorrect", "Proof unreadable", "Duplicate payment", "Wrong lead", "Details mismatch"],
+      description: "Standard audit reason-code list used by the L1 audit (FR-ADM-09, FR-DM-17).",
+    },
   ];
 
   for (const c of defaults) {

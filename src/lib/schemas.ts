@@ -3,7 +3,7 @@
  * validation is the control; client validation is convenience only. FR-SEC-27+.
  */
 import { z } from "zod";
-import { Role } from "@prisma/client";
+import { Role, Program, Plan, ComboMode, ConcessionThresholdType } from "@prisma/client";
 import { PASSWORD_POLICY } from "@/lib/constants";
 
 const strongPassword = z
@@ -55,3 +55,57 @@ export const updateUserRoleSchema = z.object({
 });
 
 export const userIdSchema = z.object({ userId: z.string().min(1) });
+
+// ── Phase 3: pricing & fee engine ─────────────────────────────────────────────
+
+const money2 = z
+  .string()
+  .trim()
+  .regex(/^\d+(\.\d{1,2})?$/, "Enter a valid amount (up to 2 decimals).");
+
+/**
+ * Fee calculation input — selections ONLY. `.strict()` means any extra key (e.g. a
+ * hand-typed `fee`/`standardFee`) is REJECTED: the client never supplies a fee, it
+ * supplies selections and receives the computed fee (FR-SAL-20, BR-01).
+ */
+export const feeCalcSchema = z
+  .object({
+    program: z.nativeEnum(Program),
+    plan: z.nativeEnum(Plan),
+    comboMode: z.nativeEnum(ComboMode).nullish(),
+  })
+  .strict();
+
+export const pricingInputSchema = z.object({
+  program: z.nativeEnum(Program),
+  plan: z.nativeEnum(Plan).nullish(),
+  advancedFee: money2.nullish(),
+  premiumFee: money2.nullish(),
+  singleShotFee: money2.nullish(),
+  doubleShotFee: money2.nullish(),
+  comboFee: money2.nullish(),
+  discount: money2.nullish(),
+  gstPercent: z.string().trim().regex(/^\d{1,2}(\.\d{1,2})?$/).optional(),
+  effectiveFrom: z.string().datetime().optional(),
+  specialPricingName: z.string().trim().max(120).nullish(),
+});
+
+export const pricingUpdateSchema = pricingInputSchema.extend({ pricingId: z.string().min(1) });
+export const pricingIdSchema = z.object({ pricingId: z.string().min(1) });
+
+export const concessionThresholdSchema = z.object({
+  plan: z.nativeEnum(Plan),
+  amount: z.number().nonnegative(),
+  percent: z.number().min(0).max(100),
+});
+
+export const reasonCodesSchema = z.object({
+  codes: z.array(z.string().trim().min(1)).max(50),
+});
+
+/** Concession input (used in Phase 4) — reason is MANDATORY (FR-SAL-26, BR-04). */
+export const concessionSchema = z.object({
+  concessionType: z.nativeEnum(ConcessionThresholdType),
+  concessionValue: money2,
+  reason: z.string().trim().min(3, "A reason is required for any concession."),
+});

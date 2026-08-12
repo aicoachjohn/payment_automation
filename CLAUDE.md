@@ -185,17 +185,19 @@ tests/unit/  tests/e2e/  docs/  prisma/
 
 ## Business Decisions
 
-Answer these before Phase 3 and replace the placeholders. They are seeded with the
-FRD §17 fallback values and marked `TODO-BUSINESS` so they are easy to find in code.
+Still awaiting the business's confirmation (`TODO-BUSINESS`). As of Phase 3 the FRD §17
+fallback values are implemented as **configuration** (SystemConfig / Pricing Master),
+editable by the Super Admin without a code change — so confirming a real value later is a
+config edit, not a code change.
 
-- **Q-02 — Concession approval threshold (per plan):** `TODO-BUSINESS`
-  (placeholder: ₹2,000 or 10%, whichever is lower)
-- **Q-04 — Double Shot payment split:** `TODO-BUSINESS`
-  (placeholder: 50 / 50 split)
-- **Q-05 — Default payment schedule (no special arrangement):** `TODO-BUSINESS`
-  (placeholder: 40% / 40% / 20%)
+- **Q-02 — Concession approval threshold (per plan):** `TODO-BUSINESS` — configured as
+  ₹2,000 or 10%, whichever is lower (SystemConfig `concession_threshold`, per plan).
+- **Q-04 — Double Shot payment split:** `TODO-BUSINESS` — configured 50 / 50
+  (SystemConfig `double_shot_split`).
+- **Q-05 — Default payment schedule (no special arrangement):** `TODO-BUSINESS` —
+  configured 40 / 40 / 20 (SystemConfig `payment_schedule_default`).
 - **Q-03 — Nominated Sales Manager / single Super Admin:** `TODO-BUSINESS`
-  (placeholder: to be named by the business)
+  (placeholder accounts seeded; to be named by the business).
 
 ---
 
@@ -229,7 +231,7 @@ Update this checklist at the end of every phase.
 - [x] **Phase 0** — Foundation & Project Constitution
 - [x] **Phase 1** — Data Model, Money & Audit Core
 - [x] **Phase 2** — Auth, RBAC & Security Baseline
-- [ ] **Phase 3** — Pricing Master & Fee Engine
+- [x] **Phase 3** — Pricing Master & Fee Engine
 - [ ] **Phase 4** — Sales: Leads & Basic Details
 - [ ] **Phase 5** — Automatic Payment Draft Generator
 - [ ] **Phase 6** — Payment Capture, Proof Upload & OCR
