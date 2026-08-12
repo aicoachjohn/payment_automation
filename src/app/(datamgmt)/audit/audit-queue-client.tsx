@@ -11,6 +11,7 @@ export interface QueueRow {
   program: string; plan: string; paymentNumber: number; paymentType: string;
   expectedAmount: string; receivedAmount: string; paymentDate: string; paymentMethod: string;
   transactionId: string; auditStatus: string; manualEntryNoOcr: boolean; hasVariance: boolean;
+  delegatedAudit: boolean;
 }
 
 export function AuditQueueClient({ rows }: { rows: QueueRow[] }) {
@@ -70,7 +71,7 @@ export function AuditQueueClient({ rows }: { rows: QueueRow[] }) {
                   <td className="px-3 py-2 font-mono text-xs">{formatINR(r.receivedAmount)}{r.hasVariance && <span className="ml-1 rounded bg-amber-100 px-1 text-xs text-amber-800">variance</span>}</td>
                   <td className="px-3 py-2 text-xs">{formatDate(r.paymentDate)}</td>
                   <td className="px-3 py-2 font-mono text-xs">{r.transactionId}</td>
-                  <td className="px-3 py-2 text-xs">{r.auditStatus}</td>
+                  <td className="px-3 py-2 text-xs">{r.auditStatus}{r.delegatedAudit && <span className="ml-1 rounded bg-violet-100 px-1 text-violet-800 dark:bg-violet-950 dark:text-violet-300">delegated</span>}</td>
                   <td className="px-3 py-2"><Link href={`/audit/${r.id}`} className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Audit</Link></td>
                 </tr>
               );

@@ -326,6 +326,7 @@ export async function listPaymentsForLead(actor: Actor, leadId: string) {
       transactionId: p.transactionId,
       auditStatus: p.auditStatus,
       manualEntryNoOcr: p.manualEntryNoOcr,
+      delegatedAudit: p.delegatedAudit,
       varianceReason: p.varianceReason,
       proofId: p.proofs[0]?.id ?? null,
       proofVersions: p.proofs.length,

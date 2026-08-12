@@ -13,7 +13,7 @@ interface Record {
   transactionId: string; auditStatus: string; auditComment: string | null; manualEntryNoOcr: boolean;
   varianceReason: string | null; hasVariance: boolean; finalApprovedFee: string | null;
   totalReceivedToDate: string; balance: string; wouldExceedFee: boolean; probableDuplicate: boolean;
-  proofId: string | null; proofVersions: number;
+  proofId: string | null; proofVersions: number; delegatedAudit: boolean;
 }
 interface TimelineEntry { id: string; action: string; field: string | null; oldValue: string | null; newValue: string | null; byName: string; role: string; at: string; }
 
@@ -65,6 +65,7 @@ export function AuditRecordClient({ record, timeline, reasonCodes }: { record: R
         <div>
           <h1 className="text-2xl font-semibold">{record.leadName} · Payment #{record.paymentNumber}</h1>
           <p className="text-sm text-slate-500">{record.program}/{record.plan} · owner {record.ownerName} · status {record.auditStatus}</p>
+          {record.delegatedAudit && <p className="mt-1 inline-block rounded bg-violet-100 px-2 py-0.5 text-xs text-violet-800 dark:bg-violet-950 dark:text-violet-300">Audited by Super Admin (delegated)</p>}
         </div>
         <a href={`/api/audit/${record.id}/timeline`} className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Timeline PDF</a>
       </div>

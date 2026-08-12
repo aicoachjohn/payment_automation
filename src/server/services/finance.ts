@@ -163,6 +163,7 @@ export interface StatementRow {
   salesperson: string;
   approvedBy: string | null;
   approvedAt: string | null;
+  delegatedAudit: boolean;
   commencingDate: string | null;
   specialMarker: string | null;
 }
@@ -222,6 +223,7 @@ export async function financeStatement(actor: Actor, filters: StatementFilters =
       salesperson: e.lead.salesperson.name,
       approvedBy: p.auditedBy ? approverName.get(p.auditedBy) ?? null : null,
       approvedAt: p.auditedAt?.toISOString() ?? null,
+      delegatedAudit: p.delegatedAudit,
       commencingDate: e.commencingDate?.toISOString() ?? null,
       specialMarker: specialMarker({
         concessionStatus: e.concessionStatus,
@@ -543,6 +545,7 @@ export interface FinancePaymentDetail {
   transactionId: string;
   approvedBy: string | null;
   approvedAt: string | null;
+  delegatedAudit: boolean;
   salesperson: string;
   proofId: string | null;
   canRaiseQuery: boolean; // only against a finance-visible (approved) payment
@@ -579,6 +582,7 @@ export async function financePaymentDetail(actor: Actor, paymentId: string): Pro
     transactionId: p.transactionId,
     approvedBy,
     approvedAt: p.auditedAt?.toISOString() ?? null,
+    delegatedAudit: p.delegatedAudit,
     salesperson: p.enrollment.lead.salesperson.name,
     proofId: p.proofs[0]?.id ?? null,
     canRaiseQuery: visible,

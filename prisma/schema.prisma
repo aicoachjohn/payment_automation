@@ -274,6 +274,9 @@ model Payment {
   auditReasonCode String?       @map("audit_reason_code")
   auditComment    String?       @map("audit_comment")
   varianceReason  String?       @map("variance_reason")
+  // FR-SA-13: set when the Super Admin audited this payment via the delegated-audit path.
+  // Surfaces "Audited by Super Admin (delegated)" on every dashboard and in history.
+  delegatedAudit  Boolean       @default(false) @map("delegated_audit")
   manualEntryNoOcr Boolean      @default(false) @map("manual_entry_no_ocr")
   fieldSources    Json?         @map("field_sources")
   voided          Boolean       @default(false)

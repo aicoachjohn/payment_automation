@@ -9,9 +9,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       user={user}
       nav={[
         { href: "/admin", label: "Overview" },
+        { href: "/admin/overrides", label: "Overrides" },
+        { href: "/admin/activity", label: "Activity Log" },
+        { href: "/admin/audit", label: "Audit Trail" },
+        { href: "/admin/records", label: "Records" },
         { href: "/admin/users", label: "Users" },
         { href: "/admin/pricing", label: "Pricing" },
         { href: "/admin/templates", label: "Templates" },
+        { href: "/admin/settings", label: "Settings" },
       ]}
     >
       {children}

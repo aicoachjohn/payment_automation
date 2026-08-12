@@ -320,3 +320,46 @@ export const financeDigestSchema = z.object({
 });
 
 export const enrollmentIdSchema = z.object({ enrollmentId: z.string().min(1) });
+
+// ── Super Admin overrides + console (Phase 9) ─────────────────────────────────
+
+const reason = z.string().trim().min(3, "A written reason is required.").max(2000);
+const confirmations = z.object({
+  amountMatches: z.boolean(),
+  dateMatches: z.boolean(),
+  transactionIdMatches: z.boolean(),
+});
+
+export const overrideInputSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("REVERSE_AUDIT"), paymentId: z.string().min(1), reason }),
+  z.object({ kind: z.literal("UNLOCK_FEE"), enrollmentId: z.string().min(1), reason }),
+  z.object({ kind: z.literal("REASSIGN_LEAD"), leadId: z.string().min(1), newSalespersonId: z.string().min(1), reason }),
+  z.object({ kind: z.literal("APPROVE_CONCESSION"), leadId: z.string().min(1), reason }),
+  z.object({ kind: z.literal("EXTEND_DEADLINE"), enrollmentId: z.string().min(1), days: z.coerce.number().int().positive().max(365), reason }),
+  z.object({ kind: z.literal("REVERSE_OPS_TRANSFER"), enrollmentId: z.string().min(1), reason }),
+  z.object({
+    kind: z.literal("DELEGATED_AUDIT"),
+    paymentId: z.string().min(1),
+    decision: z.enum(["APPROVE", "CORRECTION", "REJECT"]),
+    reason,
+    confirmations: confirmations.optional(),
+    varianceReason: z.string().trim().optional(),
+  }),
+]);
+
+export const auditLogFilterSchema = z.object({
+  performedBy: z.string().optional(),
+  entityType: z.string().optional(),
+  action: z.string().optional(),
+  entityId: z.string().optional(),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+});
+
+export const configSetSchema = z.object({
+  key: z.string().trim().min(1).max(80),
+  value: z.string(), // raw JSON string; parsed server-side
+  description: z.string().trim().max(300).optional(),
+});
+
+export const recordSearchSchema = z.object({ query: z.string().trim().max(120) });

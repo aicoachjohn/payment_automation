@@ -1,9 +1,11 @@
 # Session Handoff — ProITbridge Build
 
 **Read this, then `CLAUDE.md` (constitution), then the two memory files, before writing code.**
-Last completed: **Phase 8** (Finance Dashboard). Working tree: commit at end of phase. Next:
-**Phase 9 — Super Admin Console & Audit Trail UI** (pack: search "PHASE 9"; FRD §8
-FR-SA-01..20, FR-ADM-01..10, FR-AUD-01..05, BR-23..26).
+Last completed: **Phase 9** (Super Admin Console & Audit Trail UI). Working tree: commit at
+end of phase. Next: **Phase 10 — Automation Engine** (pack: search "PHASE 10"; FRD §5.8–5.10:
+15-day rule, reminders/notifications, Operations handover). Phase 9 left hooks for it:
+`OVERRIDE_DEADLINE_EXTENSION` / `OVERRIDE_OPS_TRANSFER_REVERSAL` overrides bump/void
+`FollowUpTask` / `OperationsHandover`; the notification service already queues rows.
 
 ---
 
@@ -54,11 +56,18 @@ Integration tests import services via `await import(...)` and use `loadEnv()` fr
 Seed password `ChangeMe#123` (super admin's was changed to `SuperAdmin#2026` during manual
 verification; `must_change_password` true for the rest).
 
-## Testing status (all green at Phase 8)
+## Testing status (all green at Phase 9)
 
-- **238 unit + 81 integration** pass; lint/typecheck/build clean.
-  (Phase 8 added `finance.integration.test.ts` + `phase8.verify.test.ts`, and the
-  permissions matrix grew to 130 cases for the new `finance:query` permission.)
+- **238 unit + 93 integration** pass; lint/typecheck/build clean.
+  (Phase 9 added `phase9.verify.test.ts` [6 checks], `audit-completeness.test.ts` [the
+  20-signature FR-AUD-01 proof], and `overrides.integration.test.ts`.)
+- **Append-only tables can't be cleaned up by tests** — `super_admin_activity` and
+  `audit_trail` rows accumulate across runs BY DESIGN (UPDATE/DELETE revoked from the app
+  role). Assertions use existence / `>=`, never exact counts, and are scoped by
+  `performedAt >= startedAt` where it matters.
+- **Don't call cookie-bound auth services (`logout`, login success path) from node tests** —
+  they read `next/headers` cookies and throw "outside a request scope". A failed `login`
+  is safe (it only writes a SecurityEvent).
 - Each phase N has `tests/integration/phaseN.verify.test.ts` printing labeled proofs.
 - **Browser-tool caveat:** live UI verification is flaky in this environment (React
   hydration lag makes the FIRST form submit after a compile no-op; super-admin login needs a
@@ -82,7 +91,29 @@ verification; `must_change_password` true for the rest).
 - **Sessions**: DB-backed (`src/server/auth/session.ts`) + signed `jose` cookie; edge
   `src/middleware.ts` role-gates `/sales /leads /audit /finance /admin` (403 on wrong role).
 
-## What exists (services you'll reuse in Phase 9)
+### Phase 9 (Super Admin) — what landed, for reuse
+
+- `src/server/services/overrides.ts` — **the single `performOverride()` funnel**. Every
+  SA override (REVERSE_AUDIT, UNLOCK_FEE, REASSIGN_LEAD, APPROVE_CONCESSION, EXTEND_DEADLINE,
+  REVERSE_OPS_TRANSFER, DELEGATED_AUDIT) routes through it in ONE transaction: mandatory
+  reason → mutation + `writeAudit` + `SuperAdminActivity` → notify (after commit). It is
+  SUPER_ADMIN-role-gated (a manager with `fee:unlock` is still refused). `describeOverride()`
+  gives the FR-SA-15 consequence string. **It never names a frozen payment field** — the
+  Phase-9 grep proof asserts this (FR-SA-08, BR-24).
+- `audit-decisions.ts` now exposes `assertPaymentApprovable` + `writeApproval(tx,…,delegated)`
+  + `loadPaymentWithContext` — the shared approval gate used by both Nandhiya's approval and
+  the delegated-audit override. `Payment.delegatedAudit` + `DELEGATED_AUDIT_LABEL`
+  (`src/lib/constants`) surface "Audited by Super Admin (delegated)" on Sales, Data Mgmt and
+  Finance views + history.
+- `audit-log.ts` (`searchAuditTrail`, `auditTrailCsv`, `auditFilterOptions`),
+  `admin-console.ts` (`systemOverview`, `workflowHealth`, `findRecords`, `paymentProofVersions`),
+  `system-config.ts` gained `setConfig`/`getConfigValue`/`listConfig` (audited, `config:write`).
+- `listSuperAdminActivity` / `overrideSummary` allow SUPER_ADMIN **and** FINANCE_REVIEWER
+  (Rajesh's read-only oversight at `/finance/oversight`, FR-SA-17).
+- Routes: `(superadmin)/admin` overview, `/overrides`, `/activity`, `/audit`, `/records`,
+  `/records/[paymentId]`, `/settings`; `/api/admin/audit/export`.
+
+## What exists (services you'll reuse in Phase 10)
 
 - `src/server/services/finance-visibility.ts` — **THE single predicate**
   `financeVisiblePaymentWhere()` / `isVisibleToFinance()` = `APPROVED && !voided`

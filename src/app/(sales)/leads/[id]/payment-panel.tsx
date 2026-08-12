@@ -13,7 +13,7 @@ export interface PaymentRow {
   id: string; paymentNumber: number; paymentType: string; expectedAmount: string;
   receivedAmount: string; paymentDate: string; paymentMethod: string; transactionId: string;
   auditStatus: string; manualEntryNoOcr: boolean; varianceReason: string | null;
-  proofId: string | null; proofVersions: number;
+  proofId: string | null; proofVersions: number; delegatedAudit: boolean;
 }
 
 interface StagedProof {
@@ -51,7 +51,7 @@ export function PaymentPanel({
                   <td className="px-3 py-2 font-mono text-xs">{formatINR(p.receivedAmount)}{p.varianceReason && <span className="ml-1 rounded bg-amber-100 px-1 text-xs text-amber-800" title={p.varianceReason}>variance</span>}</td>
                   <td className="px-3 py-2 font-mono text-xs">{p.transactionId}</td>
                   <td className="px-3 py-2 text-xs">{formatDate(p.paymentDate)}</td>
-                  <td className="px-3 py-2 text-xs">{p.auditStatus}</td>
+                  <td className="px-3 py-2 text-xs">{p.auditStatus}{p.delegatedAudit && <span className="ml-1 rounded bg-violet-100 px-1 text-violet-800 dark:bg-violet-950 dark:text-violet-300" title="Audited by Super Admin (delegated)">delegated</span>}</td>
                   <td className="px-3 py-2">{p.proofId ? <ProofViewer proofId={p.proofId} /> : "—"}</td>
                 </tr>
               ))}

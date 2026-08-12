@@ -6,7 +6,7 @@
  */
 import "server-only";
 import { AuditStatus, PaymentType, type Prisma } from "@prisma/client";
-import { db } from "@/server/db";
+import { db, type DbTx } from "@/server/db";
 import { writeAudit } from "@/server/audit";
 import { requirePermission, type Actor } from "@/server/auth/permissions";
 import { advanceLeadStatus } from "@/server/services/leads";
@@ -56,10 +56,13 @@ export interface ApproveInput {
   varianceReason?: string;
 }
 
-export async function approvePayment(actor: Actor, paymentId: string, input: ApproveInput): Promise<void> {
-  requirePermission(actor, "payment:audit"); // DATA_MGMT_AUDITOR only
-  const payment = await loadPayment(paymentId);
-
+/**
+ * The full approval gate (FR-DM-22, FR-REC-02/03/04, BR-27), shared by Nandhiya's normal
+ * approval AND the Super Admin's delegated audit (FR-SA-13) so the checks can never
+ * diverge. Reads only — throws AuditError on any gate failure; returns whether the
+ * payment carries an accepted variance.
+ */
+export async function assertPaymentApprovable(payment: PaymentWithContext, input: ApproveInput): Promise<{ variance: boolean }> {
   if (!OPEN_STATUSES.includes(payment.auditStatus)) {
     throw new AuditError("This payment is not awaiting audit.");
   }
@@ -90,33 +93,62 @@ export async function approvePayment(actor: Actor, paymentId: string, input: App
       );
     }
   }
+  return { variance };
+}
 
+/**
+ * Write an approval INSIDE the caller's transaction. `delegated=true` stamps the record
+ * "Audited by Super Admin (delegated)" (FR-SA-13). Shared by approvePayment and the
+ * Super Admin delegated-audit override so there is one approval implementation.
+ */
+export async function writeApproval(
+  tx: DbTx,
+  actor: Actor,
+  payment: PaymentWithContext,
+  variance: boolean,
+  input: ApproveInput,
+  delegated: boolean,
+): Promise<void> {
+  await tx.payment.update({
+    where: { id: payment.id },
+    data: {
+      auditStatus: AuditStatus.APPROVED,
+      auditedBy: actor.userId,
+      auditedAt: new Date(),
+      locked: true, // immutable once approved (FR-REC-09)
+      delegatedAudit: delegated,
+      auditComment: variance ? input.varianceReason!.trim() : null,
+      varianceReason: variance ? input.varianceReason!.trim() : payment.varianceReason,
+    },
+  });
+  await writeAudit(tx, {
+    entityType: "Payment",
+    entityId: payment.id,
+    action: delegated ? "AUDIT_APPROVE_DELEGATED" : "AUDIT_APPROVE",
+    changes: [
+      { field: "confirm_amount_matches", oldValue: null, newValue: true },
+      { field: "confirm_date_matches", oldValue: null, newValue: true },
+      { field: "confirm_transaction_id_matches", oldValue: null, newValue: true },
+      { field: "auditStatus", oldValue: payment.auditStatus, newValue: AuditStatus.APPROVED },
+      ...(delegated ? [{ field: "delegatedAudit", oldValue: false, newValue: true }] : []),
+      ...(variance ? [{ field: "variance_accepted", oldValue: null, newValue: input.varianceReason!.trim() }] : []),
+    ],
+    actor,
+  });
+  await advanceLeadStatus(tx, payment.enrollment.leadId, actor);
+}
+
+/** Load a payment with its full context — exposed for the delegated-audit override. */
+export function loadPaymentWithContext(paymentId: string): Promise<PaymentWithContext> {
+  return loadPayment(paymentId);
+}
+
+export async function approvePayment(actor: Actor, paymentId: string, input: ApproveInput): Promise<void> {
+  requirePermission(actor, "payment:audit"); // DATA_MGMT_AUDITOR only
+  const payment = await loadPayment(paymentId);
+  const { variance } = await assertPaymentApprovable(payment, input);
   await db.$transaction(async (tx) => {
-    await tx.payment.update({
-      where: { id: paymentId },
-      data: {
-        auditStatus: AuditStatus.APPROVED,
-        auditedBy: actor.userId,
-        auditedAt: new Date(),
-        locked: true, // immutable once approved (FR-REC-09)
-        auditComment: variance ? input.varianceReason!.trim() : null,
-        varianceReason: variance ? input.varianceReason!.trim() : payment.varianceReason,
-      },
-    });
-    await writeAudit(tx, {
-      entityType: "Payment",
-      entityId: paymentId,
-      action: "AUDIT_APPROVE",
-      changes: [
-        { field: "confirm_amount_matches", oldValue: null, newValue: true },
-        { field: "confirm_date_matches", oldValue: null, newValue: true },
-        { field: "confirm_transaction_id_matches", oldValue: null, newValue: true },
-        { field: "auditStatus", oldValue: payment.auditStatus, newValue: AuditStatus.APPROVED },
-        ...(variance ? [{ field: "variance_accepted", oldValue: null, newValue: input.varianceReason!.trim() }] : []),
-      ],
-      actor,
-    });
-    await advanceLeadStatus(tx, payment.enrollment.leadId, actor);
+    await writeApproval(tx, actor, payment, variance, input, false);
   });
 }
 
@@ -294,6 +326,7 @@ export async function auditQueue(actor: Actor, filters: AuditFilters = {}) {
     auditStatus: p.auditStatus,
     submittedAt: p.submittedAt.toISOString(),
     manualEntryNoOcr: p.manualEntryNoOcr,
+    delegatedAudit: p.delegatedAudit,
     hasVariance: !eq(p.expectedAmount.toString(), p.receivedAmount.toString()),
     proofId: p.proofs[0]?.id ?? null,
   }));
@@ -336,6 +369,7 @@ export async function getAuditRecord(actor: Actor, paymentId: string) {
     auditStatus: p.auditStatus,
     auditComment: p.auditComment,
     manualEntryNoOcr: p.manualEntryNoOcr,
+    delegatedAudit: p.delegatedAudit,
     varianceReason: p.varianceReason,
     hasVariance: !eq(p.expectedAmount.toString(), p.receivedAmount.toString()),
     finalApprovedFee: p.enrollment.finalApprovedFee?.toFixed(2) ?? null,

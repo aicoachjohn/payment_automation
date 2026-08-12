@@ -6,6 +6,10 @@
 
 export const SESSION_COOKIE = "pib_session";
 
+/** The visible mark for a payment the Super Admin audited via delegation (FR-SA-13).
+ *  Shown identically on the Sales, Data Management and Finance views and in history. */
+export const DELEGATED_AUDIT_LABEL = "Audited by Super Admin (delegated)";
+
 export const SECURITY = {
   /** Lock the account after this many consecutive failed logins (FR-AUTH-07). */
   MAX_FAILED_LOGINS: 5,

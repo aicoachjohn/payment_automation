@@ -4,6 +4,7 @@ import { requireRoles } from "@/server/auth/guard";
 import { financeOverview, financeStatement, listSalespeople, type StatementFilters } from "@/server/services/finance";
 import { STATEMENT_COLUMNS } from "@/lib/finance-columns";
 import { formatINR } from "@/lib/format";
+import { DELEGATED_AUDIT_LABEL } from "@/lib/constants";
 import { ProofViewer } from "@/components/shared/proof-viewer";
 
 export const dynamic = "force-dynamic";
@@ -157,6 +158,13 @@ export default async function FinanceStatementPage({
                         {c.get(r)}
                         {r.specialMarker && (
                           <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300">{r.specialMarker}</span>
+                        )}
+                      </span>
+                    ) : c.header === "Approved By" ? (
+                      <span className="flex items-center gap-1">
+                        {c.get(r)}
+                        {r.delegatedAudit && (
+                          <span className="rounded bg-violet-100 px-1 text-[10px] text-violet-800 dark:bg-violet-950 dark:text-violet-300" title={DELEGATED_AUDIT_LABEL}>delegated</span>
                         )}
                       </span>
                     ) : (

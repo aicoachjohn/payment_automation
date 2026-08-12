@@ -55,7 +55,7 @@ export default async function FinancePaymentPage({ params }: { params: Promise<{
         <Field label="Method">{detail.paymentMethod}</Field>
         <Field label="Transaction ID">{detail.transactionId}</Field>
         <Field label="Salesperson">{detail.salesperson}</Field>
-        <Field label="Approved By">{detail.approvedBy ?? "—"}</Field>
+        <Field label="Approved By">{detail.approvedBy ?? "—"}{detail.delegatedAudit ? " · Audited by Super Admin (delegated)" : ""}</Field>
         <Field label="Approval Date">{detail.approvedAt ? formatDate(detail.approvedAt) : "—"}</Field>
         <Field label="Proof">{detail.proofId ? <ProofViewer proofId={detail.proofId} /> : "—"}</Field>
       </dl>

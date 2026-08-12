@@ -12,6 +12,7 @@ export default async function FinanceLayout({ children }: { children: React.Reac
         { href: "/finance/customers", label: "Customers" },
         { href: "/finance/collections", label: "Collections" },
         { href: "/finance/queries", label: "Queries" },
+        { href: "/finance/oversight", label: "Admin Oversight" },
       ]}
     >
       {children}
