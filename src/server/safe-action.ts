@@ -19,12 +19,32 @@ export class ActionError extends Error {}
 
 const DEFAULT_ERROR = "Something went wrong. Please try again.";
 
+/**
+ * Domain errors whose messages are deliberately safe + user-facing (no stack/SQL/path/id) —
+ * each service class sets a stable `code`. Surfacing them by code keeps the sanitisation
+ * guarantee (NFR-11/FR-SEC-30) while telling the user what to do next (e.g. a duplicate lead).
+ */
+const SAFE_ERROR_CODES = new Set([
+  "LEAD_ERROR",
+  "PAYMENT_ERROR",
+  "PRICING_ERROR",
+  "DRAFT_ERROR",
+  "ENROLLMENT_INTAKE_ERROR",
+]);
+
+function isSafeCodedError(error: unknown): error is Error & { code: string } {
+  if (!(error instanceof Error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && SAFE_ERROR_CODES.has(code);
+}
+
 export const actionClient = createSafeActionClient({
   handleServerError(error) {
     if (
       error instanceof AuthorizationError ||
       error instanceof ActionError ||
-      error instanceof UserServiceError
+      error instanceof UserServiceError ||
+      isSafeCodedError(error)
     ) {
       return error.message;
     }
