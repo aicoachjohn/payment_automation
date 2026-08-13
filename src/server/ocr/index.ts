@@ -364,14 +364,38 @@ type TesseractWorker = Awaited<ReturnType<typeof import("tesseract.js").createWo
 let tesseractWorker: Promise<TesseractWorker> | null = null;
 function getTesseractWorker(): Promise<TesseractWorker> {
   if (!tesseractWorker) {
-    tesseractWorker = import("tesseract.js").then(({ createWorker }) => createWorker("eng"));
+    tesseractWorker = import("tesseract.js").then(async ({ createWorker, PSM }) => {
+      const worker = await createWorker("eng");
+      // SINGLE_COLUMN (PSM 4) = "a single column of text of variable sizes" — matches a
+      // receipt's layout (title, big amount, rows). Measurably lifts reading the large ₹ figure.
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_COLUMN });
+      return worker;
+    });
   }
   return tesseractWorker;
 }
 
+/**
+ * Preprocess a receipt image for OCR: greyscale + 2× upscale. On the real Paytm screenshot
+ * this is what lets Tesseract read the big stylized "₹34,999" figure at all (verified). Pure
+ * JS (jimp) — no cloud, no native deps. Falls back to the original bytes on any error.
+ */
+async function preprocessImage(bytes: Uint8Array): Promise<Uint8Array> {
+  try {
+    const { Jimp } = await import("jimp");
+    const img = await Jimp.read(Buffer.from(bytes));
+    img.greyscale();
+    img.scale(2);
+    const out = await img.getBuffer("image/png");
+    return new Uint8Array(out);
+  } catch {
+    return bytes; // corrupt/unsupported → let Tesseract try the original
+  }
+}
+
 async function ocrImage(bytes: Uint8Array): Promise<string> {
   const worker = await getTesseractWorker();
-  const { data } = await worker.recognize(Buffer.from(bytes));
+  const { data } = await worker.recognize(Buffer.from(await preprocessImage(bytes)));
   return data.text ?? "";
 }
 

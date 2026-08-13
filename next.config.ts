@@ -37,7 +37,7 @@ const nextConfig: NextConfig = {
   // Node-only OCR libs — leave them as runtime requires, never bundle them (they use
   // worker threads / WASM and dynamic requires that a bundler would break). OCR runs
   // server-side, so the browser CSP does not affect their model fetches.
-  serverExternalPackages: ["tesseract.js", "unpdf"],
+  serverExternalPackages: ["tesseract.js", "unpdf", "jimp"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
