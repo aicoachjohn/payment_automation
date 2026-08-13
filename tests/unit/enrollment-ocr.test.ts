@@ -88,4 +88,23 @@ describe("parseReceiptText — fixes for the real proofs", () => {
     expect(r.fields.payerName).toBe("MEGALA SEGAR"); // not "Transaction Details" / "From Account" / the payee
     expect(r.fields.paymentMethod).toBe(PaymentMethod.NEFT);
   });
+
+  it("recovers the amount from words when OCR drops the ₹ figure (REAL Paytm OCR output)", () => {
+    // Verbatim Tesseract output for the real Paytm screenshot — the big "₹34,999" was NOT
+    // read, but the amount-in-words line was.
+    const realOcr = `Proitbridge Opc Pvt Ltd\n@ Kotak Mahindra Bank A/c - 2956\nThirty Four Thousand Nine Hundred Ninety Nine Rupees\nPaid Successfully &\n\nSuresh kumar Krishnasamy\n«« From »e-\nMs S Nirmala\n\n© Indian Bank - 7348\n\n11 Aug, 06:45 PM | Ref No: 3122 4582 5686`;
+    const r = parseReceiptText(realOcr, 2026);
+    expect(r.fields.receivedAmount).toBe("34999");
+    expect(r.fields.transactionId).toBe("312245825686");
+    expect(r.fields.paymentDate?.slice(0, 10)).toBe("2026-08-11");
+    expect(r.fields.payerName).toBe("Ms S Nirmala");
+  });
+
+  it("reads a comma-grouped amount even without a currency symbol", () => {
+    expect(parseReceiptText("Paid 1,24,999 to college").fields.receivedAmount).toBe("124999");
+  });
+
+  it("does not invent an amount from an account/reference number", () => {
+    expect(parseReceiptText("A/c - 2956\nRef No: 3122 4582 5686").fields.receivedAmount).toBeUndefined();
+  });
 });

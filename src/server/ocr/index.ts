@@ -120,6 +120,46 @@ const PAYEE_NOISE = /proitbridge|proit\s*bridge|kotak|mahindra|indian\s+bank|axi
 /** One line, 2–4 Title/UPPER-case words, initials allowed (e.g. "Ms S Nirmala", "MEGALA SEGAR"). */
 const NAME_LINE = /^[A-Z][A-Za-z.]*(?:[ \t]+[A-Z][A-Za-z.]*){1,3}$/;
 
+const NUM_WORDS: Record<string, number> = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+};
+const NUM_SCALES: Record<string, number> = {
+  hundred: 100, thousand: 1000, lakh: 100000, lakhs: 100000, lac: 100000, lacs: 100000,
+  crore: 10000000, crores: 10000000, million: 1000000, billion: 1000000000,
+};
+const isNumWord = (w: string): boolean => NUM_WORDS[w] !== undefined || NUM_SCALES[w] !== undefined || w === "and";
+
+/**
+ * Recover an amount spelled out in words ("Thirty Four Thousand Nine Hundred Ninety Nine
+ * Rupees" → 34999). Paytm/UPI screenshots always print this line, and it survives when the
+ * big stylized ₹ figure defeats image OCR entirely. Only a run of number-words anchored to
+ * "Rupees"/"Only" is accepted, so it never mis-fires on account/reference numbers.
+ */
+function amountFromWords(text: string): number | null {
+  const tokens = text.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean);
+  let best: string[] | null = null;
+  for (let i = 0; i < tokens.length; ) {
+    if (!isNumWord(tokens[i])) { i++; continue; }
+    let j = i;
+    while (j < tokens.length && isNumWord(tokens[j])) j++;
+    const anchor = (w: string | undefined) => w === "rupees" || w === "rupee" || w === "only";
+    if (anchor(tokens[j]) || anchor(tokens[j + 1])) best = tokens.slice(i, j).filter((w) => w !== "and");
+    i = j;
+  }
+  if (!best || best.length === 0) return null;
+  let total = 0, current = 0;
+  for (const w of best) {
+    if (NUM_WORDS[w] !== undefined) current += NUM_WORDS[w];
+    else if (w === "hundred") current = (current || 1) * 100;
+    else if (NUM_SCALES[w] !== undefined) { total += (current || 1) * NUM_SCALES[w]; current = 0; }
+  }
+  const value = total + current;
+  return value > 0 ? value : null;
+}
+
 /**
  * Deterministic receipt parser — pure. Handles the real ProITbridge proof formats:
  * Paytm/UPI screenshots ("₹34,999", "Ref No: 3122 4582 5686", a YEARLESS date like
@@ -132,10 +172,24 @@ export function parseReceiptText(text: string, fallbackYear?: number): OcrResult
   const fields: OcrFields = {};
   const confidence: Record<string, number> = {};
 
-  const amount = /(?:₹|Rs\.?|INR\.?)\s*([\d,]+(?:\.\d{1,2})?)/i.exec(text);
-  if (amount) {
-    fields.receivedAmount = amount[1].replace(/,/g, "");
+  // Amount, most reliable first: (1) a currency-prefixed figure (₹34,999 / Rs.50000);
+  // (2) a comma-grouped number even when OCR dropped the ₹ glyph ("34,999"); (3) the amount
+  // spelled out before "Rupees"/"Only" — the only form that survives when the big stylized
+  // figure defeats image OCR entirely (real Paytm screenshots).
+  const amtCurrency = /(?:₹|Rs\.?|INR\.?)\s*([\d,]+(?:\.\d{1,2})?)/i.exec(text);
+  const amtGrouped = /(?:^|[^\w.])(\d{1,2}(?:,\d{2,3})+(?:\.\d{1,2})?)(?!\d)/.exec(text);
+  if (amtCurrency) {
+    fields.receivedAmount = amtCurrency[1].replace(/,/g, "");
     confidence.receivedAmount = 0.95;
+  } else if (amtGrouped) {
+    fields.receivedAmount = amtGrouped[1].replace(/,/g, "");
+    confidence.receivedAmount = 0.75;
+  } else {
+    const words = amountFromWords(text);
+    if (words != null) {
+      fields.receivedAmount = String(words);
+      confidence.receivedAmount = 0.6;
+    }
   }
 
   const txn = /(?:Ref(?:erence)?\s*No\.?|UTR(?:\s*No\.?)?|Transaction\s*ID|Txn\s*ID)\s*[:\-]?\s*([A-Z0-9][A-Z0-9 ]{5,})/i.exec(text);
