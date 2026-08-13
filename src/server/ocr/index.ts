@@ -17,11 +17,77 @@ export interface OcrResult {
   fields: OcrFields;
   confidence: Record<string, number>; // 0..1 per field
   raw: unknown;
+  text?: string; // the full recognised text (for lead auto-fill, FR-SAL-08 assist)
 }
 
 export interface OcrProvider {
   readonly name: string;
   extract(fileBuffer: Uint8Array, mimeType: string): Promise<OcrResult>;
+}
+
+/** Lead contact details extracted from an uploaded doc / pasted text (auto-fill assist). */
+export interface LeadOcrFields {
+  fullName?: string;
+  mobile?: string;
+  email?: string;
+  leadSource?: string;
+}
+
+const SOURCE_WORDS = ["Instagram", "Facebook", "WhatsApp", "LinkedIn", "YouTube", "Referral", "Google", "Website", "Walk-in", "Twitter", "Telegram"];
+
+/** Find the first valid 10-digit Indian mobile (starts 6–9), tolerating +91/0 and separators. */
+function extractMobile(text: string): string | undefined {
+  const candidates = text.match(/(?:\+?91[\s.-]?|0)?[6-9][\d\s.-]{9,15}/g) ?? [];
+  for (const c of candidates) {
+    const digits = c.replace(/\D/g, "");
+    const ten = digits.length > 10 ? digits.slice(-10) : digits; // drop 91/0 prefix
+    if (ten.length === 10 && /^[6-9]/.test(ten)) return ten;
+  }
+  return undefined;
+}
+
+/**
+ * Parse lead contact details from free text — a WhatsApp message, an enquiry note, or the
+ * text an OCR engine read off a screenshot. Pure + deterministic, so it is unit-testable
+ * and used identically for pasted text and uploaded documents. Assistive only: the
+ * salesperson reviews and confirms before the lead is created.
+ */
+export function parseLeadText(text: string): LeadOcrFields {
+  const out: LeadOcrFields = {};
+
+  const email = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.exec(text);
+  if (email) out.email = email[0].toLowerCase();
+
+  const mobile = extractMobile(text);
+  if (mobile) out.mobile = mobile;
+
+  // Name — prefer an explicit "Name: X" label; else the first plausible name line.
+  const labelled = /\b(?:name|student|learner|candidate)\s*[:\-]\s*([A-Za-z][A-Za-z .]{1,48})/i.exec(text);
+  if (labelled) {
+    out.fullName = labelled[1].trim().replace(/\s+/g, " ");
+  } else {
+    for (const rawLine of text.split(/[\n,;|]/)) {
+      const line = rawLine.trim();
+      // 1–4 words, letters only, not a source keyword, not obviously a label.
+      if (/^[A-Za-z][A-Za-z.]*(?:\s+[A-Za-z][A-Za-z.]*){0,3}$/.test(line) && line.length >= 3 && line.length <= 48) {
+        if (SOURCE_WORDS.some((s) => s.toLowerCase() === line.toLowerCase())) continue;
+        if (/^(name|mobile|phone|email|source|enquiry|hi|hello|dear|regards|thanks|number)$/i.test(line)) continue;
+        out.fullName = line.replace(/\s+/g, " ");
+        break;
+      }
+    }
+  }
+
+  // Lead source — an explicit label, else a recognised platform keyword.
+  const srcLabel = /\bsource\s*[:\-]\s*([A-Za-z][A-Za-z .-]{1,30})/i.exec(text);
+  if (srcLabel) {
+    out.leadSource = srcLabel[1].trim();
+  } else {
+    const word = SOURCE_WORDS.find((s) => new RegExp(`\\b${s}\\b`, "i").test(text));
+    if (word) out.leadSource = word;
+  }
+
+  return out;
 }
 
 const MONTHS: Record<string, number> = {
@@ -95,7 +161,7 @@ class MockOcrProvider implements OcrProvider {
   readonly name = "mock";
   async extract(fileBuffer: Uint8Array): Promise<OcrResult> {
     const text = new TextDecoder("utf-8", { fatal: false }).decode(fileBuffer);
-    return parseReceiptText(text);
+    return { ...parseReceiptText(text), text };
   }
 }
 
@@ -122,7 +188,7 @@ class GoogleVisionProvider implements OcrProvider {
     if (!res.ok) throw new Error(`OCR request failed (${res.status}).`);
     const json = (await res.json()) as { responses?: { fullTextAnnotation?: { text?: string } }[] };
     const text = json.responses?.[0]?.fullTextAnnotation?.text ?? "";
-    return { ...parseReceiptText(text), raw: { provider: "vision" } };
+    return { ...parseReceiptText(text), raw: { provider: "vision" }, text };
   }
 }
 

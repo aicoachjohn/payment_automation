@@ -1,9 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getSession } from "@/server/auth/session";
 import { authActionClient, withPermission } from "@/server/safe-action";
+import { AuthorizationError } from "@/server/auth/permissions";
 import {
   leadCreateSchema,
+  leadAutofillTextSchema,
   basicDetailsSchema,
   courseSelectionWithLeadSchema,
   duplicateCheckSchema,
@@ -20,6 +23,7 @@ import {
   decideConcession,
   checkDuplicate,
 } from "@/server/services/leads";
+import { extractLeadFromText, extractLeadFromUpload, LeadIntakeError } from "@/server/services/lead-intake";
 import { generateDraft, emailDraft } from "@/server/services/draft";
 
 export const createLeadAction = authActionClient
@@ -29,6 +33,33 @@ export const createLeadAction = authActionClient
     revalidatePath("/sales");
     return { ok: true as const, leadId: id };
   });
+
+/** Auto-fill from pasted text (WhatsApp message / enquiry note). */
+export const autofillLeadFromTextAction = authActionClient
+  .schema(leadAutofillTextSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = extractLeadFromText(ctx.actor, parsedInput.text);
+    return { ok: result.ok, fields: result.fields };
+  });
+
+/** Auto-fill from an uploaded screenshot / document (multipart → OCR). */
+export async function autofillLeadFromFileAction(formData: FormData) {
+  try {
+    const ctx = await getSession();
+    if (!ctx || !ctx.session.twoFaVerified || ctx.user.mustChangePassword) {
+      throw new AuthorizationError("Please sign in to continue.");
+    }
+    const file = formData.get("file");
+    if (!(file instanceof File)) return { error: "No file was provided." as string };
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const result = await extractLeadFromUpload(ctx.actor, { bytes, originalFilename: file.name });
+    return { ok: result.ok, fields: result.fields };
+  } catch (e) {
+    if (e instanceof LeadIntakeError || e instanceof AuthorizationError) return { error: e.message };
+    console.error("[lead autofill error]", e);
+    return { error: "Could not read that file. Please try another, or enter the details manually." };
+  }
+}
 
 export const checkDuplicateAction = authActionClient
   .schema(duplicateCheckSchema)

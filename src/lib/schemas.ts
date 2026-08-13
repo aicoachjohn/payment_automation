@@ -149,6 +149,10 @@ export const basicDetailsSchema = z.object({
 });
 
 /** New-lead create: only name + salesperson are required up front (FR-SAL-07). */
+export const leadAutofillTextSchema = z.object({
+  text: z.string().trim().min(2, "Paste the enquiry text to auto-fill.").max(5000),
+});
+
 export const leadCreateSchema = z.object({
   fullName: z.string().trim().min(2, "Enter the learner's name."),
   mobile: z.string().trim().regex(/^(\+?\d{1,3}[- ]?)?\d{10}$/, "Enter a valid 10-digit mobile number.").optional(),
