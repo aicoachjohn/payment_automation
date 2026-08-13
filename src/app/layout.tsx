@@ -30,7 +30,11 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${poppins.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      {/* suppressHydrationWarning: browser extensions (password managers / form fillers)
+          stamp attributes like `__processed_…` onto <body> before React hydrates, which is a
+          benign server/client diff outside our control. This suppresses that one-level warning
+          only — it does not hide real mismatches in the app tree. */}
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>{children}</body>
     </html>
   );
 }
