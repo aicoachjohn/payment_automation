@@ -10,6 +10,15 @@ const ROLE_LABEL: Record<Role, string> = {
   SUPER_ADMIN: "Super Admin",
 };
 
+/** Where the logo (home button) points for each role. */
+const ROLE_HOME: Record<Role, string> = {
+  SALESPERSON: "/sales",
+  SALES_MANAGER: "/sales",
+  DATA_MGMT_AUDITOR: "/audit",
+  FINANCE_REVIEWER: "/finance",
+  SUPER_ADMIN: "/admin",
+};
+
 export interface NavItem {
   href: string;
   label: string;
@@ -25,19 +34,24 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-4">
-            <span className="font-mono text-xs font-semibold uppercase tracking-widest text-slate-500">
-              ProITbridge
-            </span>
-            <nav className="flex gap-3 text-sm">
+    <div className="flex min-h-screen flex-col bg-[var(--background)] text-slate-900 dark:text-slate-100">
+      {/* Brand accent strip */}
+      <div className="h-1 w-full bg-gradient-to-r from-brand-navy via-brand-blue to-brand-navy" />
+
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/75 dark:border-slate-800 dark:bg-slate-900/85">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5">
+          <div className="flex items-center gap-5">
+            {/* Logo = home button */}
+            <Link href={ROLE_HOME[user.role]} aria-label="ProITbridge home" className="shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/proitbridge-logo.svg" alt="ProITbridge" width={146} height={35} className="h-[34px] w-auto" />
+            </Link>
+            <nav className="flex flex-wrap gap-1 text-sm">
               {nav.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="rounded px-2 py-1 text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                  className="rounded-md px-2.5 py-1.5 font-medium text-slate-600 transition hover:bg-brand-blue-50 hover:text-brand-navy dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
                 >
                   {item.label}
                 </Link>
@@ -45,14 +59,24 @@ export function AppShell({
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="text-slate-600 dark:text-slate-300">
-              {user.name} · <span className="text-slate-400">{ROLE_LABEL[user.role]}</span>
+            <span className="hidden items-center gap-2 sm:flex">
+              <span className="font-medium text-brand-navy dark:text-slate-100">{user.name}</span>
+              <span className="rounded-full bg-brand-blue-50 px-2 py-0.5 text-xs font-semibold text-brand-blue-600 dark:bg-slate-800 dark:text-brand-blue">
+                {ROLE_LABEL[user.role]}
+              </span>
             </span>
             <LogoutButton />
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
+
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">{children}</main>
+
+      <footer className="border-t border-slate-200 py-4 dark:border-slate-800">
+        <div className="mx-auto max-w-6xl px-4 text-xs text-slate-400">
+          ProITbridge · Payment &amp; Enrollment Automation
+        </div>
+      </footer>
     </div>
   );
 }

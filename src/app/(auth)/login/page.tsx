@@ -6,9 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { loginAction } from "@/app/(auth)/actions";
 
 const input =
-  "w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-800";
+  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-blue dark:border-slate-700 dark:bg-slate-800";
 const button =
-  "w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900";
+  "w-full rounded-lg bg-brand-navy px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-navy-700 disabled:opacity-50";
 
 function LoginForm() {
   const router = useRouter();
@@ -37,7 +37,7 @@ function LoginForm() {
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
-      <h1 className="text-lg font-semibold">Sign in</h1>
+      <h1 className="text-xl font-bold text-brand-navy dark:text-white">Sign in</h1>
       {error && (
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
           {error}
@@ -57,7 +57,7 @@ function LoginForm() {
         {pending ? "Signing in…" : "Sign in"}
       </button>
       <p className="text-center text-sm">
-        <Link href="/forgot-password" className="text-slate-500 hover:underline">
+        <Link href="/forgot-password" className="font-medium text-brand-blue-600 hover:underline dark:text-brand-blue">
           Forgot your password?
         </Link>
       </p>

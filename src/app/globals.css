@@ -1,26 +1,60 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/*
+ * ProITbridge brand system. Palette taken from the corporate logo:
+ *   navy  #01153a   ·   accent blue (cyan)  #00b0f0
+ * Bold display headings (Poppins), clean body (Inter), Indian-grouped mono for money.
+ */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-poppins);
   --font-mono: var(--font-geist-mono);
+
+  /* Brand tokens (usable as bg-brand-navy, text-brand-blue, border-brand-blue, …) */
+  --color-brand-navy: #01153a;
+  --color-brand-navy-700: #0b2452;
+  --color-brand-navy-600: #14315f;
+  --color-brand-blue: #00b0f0;
+  --color-brand-blue-600: #0091d5;
+  --color-brand-blue-50: #e8f8ff;
+}
+
+:root {
+  --background: #f4f7fb; /* soft light-slate app canvas */
+  --foreground: #0b1b39; /* near-navy body text */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #070d1b;
+    --foreground: #e9eef7;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/* Display font + tight tracking for every heading, app-wide (brand voice). */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  letter-spacing: -0.012em;
+}
+
+/* Brand focus ring — the accent cyan, on every interactive element. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Links inside prose lean on the accent. */
+::selection {
+  background: color-mix(in srgb, var(--color-brand-blue) 30%, transparent);
 }

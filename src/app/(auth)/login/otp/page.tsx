@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { verifyOtpAction } from "@/app/(auth)/actions";
 
 const input =
-  "w-full rounded-md border border-slate-300 px-3 py-2 text-center text-lg tracking-[0.5em] outline-none focus:border-slate-500 dark:border-slate-700 dark:bg-slate-800";
+  "w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-lg tracking-[0.5em] outline-none focus:border-brand-blue dark:border-slate-700 dark:bg-slate-800";
 const button =
-  "w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900";
+  "w-full rounded-lg bg-brand-navy px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-navy-700 disabled:opacity-50";
 
 export default function OtpPage() {
   const router = useRouter();
