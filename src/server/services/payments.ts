@@ -44,12 +44,17 @@ export interface UploadedProof {
   ocr: { ok: boolean; fields: OcrFields; confidence: Record<string, number> };
 }
 
-export async function uploadProof(
+/**
+ * Stage a proof: validate → scan → store → OCR (writing the OCR sidecar). Guarded by
+ * `payment:create` only — it does NOT check lead ownership, so it can run BEFORE a lead
+ * exists (the one-bundle enrollment intake stages proofs first, then creates the lead on
+ * confirm). `uploadProof` wraps this behind the per-lead ownership check for the normal
+ * single-payment capture flow. Same validation/scan/OCR path either way (FR-SEC-22/23/24).
+ */
+export async function stageProof(
   actor: Actor,
-  leadId: string,
   file: { bytes: Uint8Array; originalFilename: string },
 ): Promise<UploadedProof> {
-  await getLeadForActor(actor, leadId); // ownership
   requirePermission(actor, "payment:create");
 
   const maxMb = await getConfigNumber("max_upload_mb", 10);
@@ -74,6 +79,15 @@ export async function uploadProof(
     originalFilename: file.originalFilename.slice(0, 255),
     ocr: { ok: ocr.ok, fields: ocr.fields, confidence: ocr.confidence },
   };
+}
+
+export async function uploadProof(
+  actor: Actor,
+  leadId: string,
+  file: { bytes: Uint8Array; originalFilename: string },
+): Promise<UploadedProof> {
+  await getLeadForActor(actor, leadId); // ownership — must precede staging
+  return stageProof(actor, file);
 }
 
 // ── Capture: confirm → validate → create Payment + PaymentProof ───────────────
