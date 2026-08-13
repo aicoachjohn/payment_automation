@@ -37,12 +37,37 @@ class ConsoleNotificationProvider implements NotificationProvider {
   }
 }
 
-/** No-op-ish placeholder for a real provider, wired in Phase 10. */
+/** No-op placeholder — logs a queued notice only (no body), for CI/tests. */
 class StubEmailProvider implements NotificationProvider {
   readonly name = "stub";
   async sendEmail(message: EmailMessage): Promise<void> {
-    // TODO-INTEGRATION (Phase 10): call the real EMAIL_PROVIDER using EMAIL_API_KEY.
     console.info(`[stub email] queued to ${message.to}: ${message.subject}`);
+  }
+}
+
+/**
+ * Production email over the SendGrid v3 REST API using `fetch` (no SDK — keeps the fixed
+ * stack). Selected by EMAIL_PROVIDER=sendgrid; keys come ONLY from env (FR-SEC-12). The
+ * sending domain must have SPF/DKIM configured (D-04). A non-2xx response throws so the
+ * caller marks the Notification FAILED and it surfaces on the Super Admin health panel.
+ */
+class SendGridEmailProvider implements NotificationProvider {
+  readonly name = "sendgrid";
+  async sendEmail(message: EmailMessage): Promise<void> {
+    const apiKey = process.env.EMAIL_API_KEY;
+    const from = process.env.EMAIL_FROM;
+    if (!apiKey || !from) throw new Error("Email provider is not configured.");
+    const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: message.to }] }],
+        from: { email: from },
+        subject: message.subject,
+        content: [{ type: "text/plain", value: message.body }],
+      }),
+    });
+    if (!res.ok) throw new Error(`Email delivery failed (${res.status}).`);
   }
 }
 
@@ -50,10 +75,16 @@ let provider: NotificationProvider | null = null;
 
 export function getNotificationProvider(): NotificationProvider {
   if (provider) return provider;
-  provider =
-    (process.env.EMAIL_PROVIDER ?? "console") === "console"
-      ? new ConsoleNotificationProvider()
-      : new StubEmailProvider();
+  switch (process.env.EMAIL_PROVIDER ?? "console") {
+    case "sendgrid":
+      provider = new SendGridEmailProvider();
+      break;
+    case "stub":
+      provider = new StubEmailProvider();
+      break;
+    default:
+      provider = new ConsoleNotificationProvider();
+  }
   return provider;
 }
 

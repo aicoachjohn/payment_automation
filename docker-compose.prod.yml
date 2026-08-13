@@ -1,0 +1,63 @@
+# Production compose (Phase 12). The database is on a PRIVATE network and is NOT published
+# to the host / public internet (FR-SEC-10) — only the app can reach it. Uploaded proofs
+# live on an encrypted volume (FR-SEC-14); back them up alongside the DB (FR-SEC-35).
+# TLS 1.2+ is terminated at the reverse proxy / load balancer in front of `app`
+# (FR-SEC-15, NFR-05) — do not expose port 3000 publicly without it.
+services:
+  app:
+    build: { context: ., dockerfile: Dockerfile }
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}         # restricted runtime role (proitbridge_app)
+      DIRECT_URL: ${DIRECT_URL}             # migrations only
+      AUTH_SECRET: ${AUTH_SECRET}
+      PROOF_SIGNING_SECRET: ${PROOF_SIGNING_SECRET}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-s3}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-sendgrid}
+      EMAIL_API_KEY: ${EMAIL_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      OCR_PROVIDER: ${OCR_PROVIDER:-vision}
+      OCR_API_KEY: ${OCR_API_KEY}
+      CRON_SECRET: ${CRON_SECRET}
+      APP_VERSION: ${APP_VERSION:-1.0.0}
+    ports:
+      - "127.0.0.1:3000:3000"               # bind to loopback; the proxy handles TLS + public ingress
+    networks: [frontend, dbnet]
+    depends_on: { db: { condition: service_healthy } }
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: proitbridge
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - dbdata:/var/lib/postgresql/data       # encrypt this volume at rest (FR-SEC-14)
+    networks: [dbnet]                          # NO published ports — private network only (FR-SEC-10)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d proitbridge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nightly automation + reconciliation tick (Phase 10/11). A platform scheduler can POST
+  # this instead; either way the run is idempotent.
+  cron:
+    image: curlimages/curl:8.8.0
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "while true; do curl -fsS -X POST -H \"x-cron-secret: ${CRON_SECRET}\" http://app:3000/api/jobs/tick || true; sleep 86400; done"
+    networks: [frontend]
+    depends_on: [app]
+
+networks:
+  frontend:
+  dbnet:
+    internal: true                            # not reachable from outside the compose network
+
+volumes:
+  dbdata:
+  proofs:

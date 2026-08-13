@@ -240,4 +240,6 @@ Update this checklist at the end of every phase.
 - [x] **Phase 9** — Super Admin Console & Audit Trail UI
 - [x] **Phase 10** — Automation Engine
 - [x] **Phase 11** — Reconciliation & Integrity
-- [ ] **Phase 12** — Hardening, Testing, UAT & Deployment
+- [x] **Phase 12** — Hardening, Testing, UAT & Deployment
+      (software complete + tested; go-live blockers are operational — see
+      `docs/GO_LIVE_READINESS.md`)

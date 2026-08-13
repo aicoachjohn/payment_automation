@@ -99,22 +99,37 @@ class MockOcrProvider implements OcrProvider {
   }
 }
 
-/** The SHAPE of a Google Cloud Vision / AWS Textract call — not wired to a real API. */
-class StubCloudProvider implements OcrProvider {
-  readonly name = "stub-cloud";
+/**
+ * Google Cloud Vision text detection over its REST API using `fetch` (no SDK — keeps the
+ * fixed stack). Selected by OCR_PROVIDER=vision; the key comes ONLY from env (FR-SEC-12).
+ * The raw text is mapped by the SAME deterministic parser used in dev, so no field logic
+ * moved. A quota error or timeout propagates and `runOcr` falls back to manual entry
+ * (FR-SAL-47, NFR-02). To use AWS Textract / Azure DI instead, add a sibling provider —
+ * the interface and the manual-entry fallback are unchanged.
+ */
+class GoogleVisionProvider implements OcrProvider {
+  readonly name = "vision";
   async extract(fileBuffer: Uint8Array, mimeType: string): Promise<OcrResult> {
-    // TODO-INTEGRATION (Phase 12): POST { image: base64(fileBuffer), mimeType } to the
-    // OCR endpoint using OCR_API_KEY, then map the response to OcrFields + confidence.
-    void fileBuffer;
     void mimeType;
-    return { fields: {}, confidence: {}, raw: { provider: "stub-cloud", note: "TODO-INTEGRATION" } };
+    const apiKey = process.env.OCR_API_KEY;
+    if (!apiKey) throw new Error("OCR provider is not configured.");
+    const base64 = Buffer.from(fileBuffer).toString("base64");
+    const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requests: [{ image: { content: base64 }, features: [{ type: "DOCUMENT_TEXT_DETECTION" }] }] }),
+    });
+    if (!res.ok) throw new Error(`OCR request failed (${res.status}).`);
+    const json = (await res.json()) as { responses?: { fullTextAnnotation?: { text?: string } }[] };
+    const text = json.responses?.[0]?.fullTextAnnotation?.text ?? "";
+    return { ...parseReceiptText(text), raw: { provider: "vision" } };
   }
 }
 
 let provider: OcrProvider | null = null;
 export function getOcrProvider(): OcrProvider {
   if (provider) return provider;
-  provider = (process.env.OCR_PROVIDER ?? "mock") === "stub-cloud" ? new StubCloudProvider() : new MockOcrProvider();
+  provider = (process.env.OCR_PROVIDER ?? "mock") === "vision" ? new GoogleVisionProvider() : new MockOcrProvider();
   return provider;
 }
 

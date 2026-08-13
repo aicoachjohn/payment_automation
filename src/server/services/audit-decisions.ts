@@ -5,7 +5,7 @@
  * APPROVED publishes to Finance (via the single predicate in finance-visibility).
  */
 import "server-only";
-import { AuditStatus, PaymentType, type Prisma } from "@prisma/client";
+import { AuditStatus, PaymentType, Role, type Prisma } from "@prisma/client";
 import { db, type DbTx } from "@/server/db";
 import { writeAudit } from "@/server/audit";
 import { requirePermission, type Actor } from "@/server/auth/permissions";
@@ -190,7 +190,7 @@ async function decideWithReason(
     await advanceLeadStatus(tx, payment.enrollment.leadId, actor);
   });
 
-  // Correction routes back to the ORIGINATING salesperson only (FR-DM-18, rule 4).
+  // Correction routes back to the ORIGINATING salesperson only (FR-DM-18, FR-SAL-64, rule 4).
   if (status === AuditStatus.CORRECTION_REQUIRED) {
     await notifyUser({
       recipientId: payment.submittedBy,
@@ -200,6 +200,23 @@ async function decideWithReason(
       relatedEntityType: "Payment",
       relatedEntityId: paymentId,
     });
+  }
+
+  // Rejection reaches the originating salesperson AND the Sales Manager (FR-SAL-65).
+  if (status === AuditStatus.REJECTED) {
+    const managers = await db.user.findMany({ where: { role: Role.SALES_MANAGER, status: "ACTIVE" }, select: { id: true, email: true } });
+    const body = `Payment #${payment.paymentNumber} for ${payment.enrollment.lead.fullName} was rejected: ${input.comment.trim()}`;
+    for (const recipient of [{ id: payment.submittedBy, email: undefined as string | undefined }, ...managers]) {
+      await notifyUser({
+        recipientId: recipient.id,
+        recipientEmail: recipient.email,
+        type: "PAYMENT_REJECTED",
+        subject: `Payment rejected — ${payment.enrollment.lead.fullName}`,
+        body,
+        relatedEntityType: "Payment",
+        relatedEntityId: paymentId,
+      });
+    }
   }
 }
 

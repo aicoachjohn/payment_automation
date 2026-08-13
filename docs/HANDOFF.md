@@ -1,9 +1,11 @@
 # Session Handoff — ProITbridge Build
 
 **Read this, then `CLAUDE.md` (constitution), then the two memory files, before writing code.**
-Last completed: **Phase 11** (Payment Integrity & Reconciliation). Working tree: commit at
-end of phase. Next (final): **Phase 12 — Hardening, Testing, UAT & Deployment** (pack:
-search "PHASE 12"; FRD §11 NFR-01..16, §12.4-12.6 FR-SEC-27..46, §15.1 acceptance criteria).
+Last completed: **Phase 12** (Hardening, Testing, UAT & Deployment) — the FINAL build phase.
+All 13 phases (0–12) are complete. The software is functionally done and tested (253 unit +
+151 integration green; lint/typecheck/build clean). Remaining work to production is
+**operational**, tracked honestly in `docs/GO_LIVE_READINESS.md` (pen test, restore drill,
+infra encryption/TLS, named owners, load test). No further build phases remain.
 
 ---
 
@@ -54,11 +56,20 @@ Integration tests import services via `await import(...)` and use `loadEnv()` fr
 Seed password `ChangeMe#123` (super admin's was changed to `SuperAdmin#2026` during manual
 verification; `must_change_password` true for the rest).
 
-## Testing status (all green at Phase 11)
+## Testing status (all green at Phase 12 — build complete)
 
-- **250 unit + 112 integration** pass; lint/typecheck/build clean.
-  (Phase 11 added `no-float-money.test.ts` [greps the whole tree for money-floats, FR-REC-07]
-  and `phase11.verify.test.ts` [the 5 verify checks + void + FR-REC-05/18].)
+- **253 unit + 151 integration** pass; lint/typecheck/build clean.
+  (Phase 12 added `business-rules.test.ts` [BR-01..30 UAT], `acceptance.test.ts` [FRD 15.1
+  #6..14], `no-hardcoded-params.test.ts` [NFR-16], `log-privacy.test.ts` [FR-SEC-31].)
+- Phase 12 fixed a real gap: **rejection now notifies the salesperson + Sales Manager**
+  (FR-SAL-65) — `audit-decisions.ts` reject path.
+- New provider adapters are env-selected: `EMAIL_PROVIDER=sendgrid`, `OCR_PROVIDER=vision`
+  (both real REST via `fetch`, no SDK). ClamAV scan + S3 storage remain structured adapters
+  to wire at deploy. Health at `GET /api/health`; structured logger `src/server/log.ts`.
+- Deployment: `Dockerfile`, `docker-compose.prod.yml`, `.github/workflows/ci.yml`,
+  `scripts/restore-test.sh`, `scripts/anonymise.ts`. Docs: `DEPLOYMENT.md`, `RUNBOOK.md`,
+  `PRIVILEGED_ACCESS.md`, `SECURITY_REVIEW.md`, `UAT_EVIDENCE.md`, `GO_LIVE_READINESS.md`,
+  `RECONCILIATION.md`.
 - **Money is exact Decimal only** — `tests/unit/no-float-money.test.ts` will FAIL any new
   `parseFloat`/`Number(<money>)` in `src/` outside `src/server/money`. Use money helpers;
   `toPaise` is the only sanctioned money→number, for chart geometry.
