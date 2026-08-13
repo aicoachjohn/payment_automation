@@ -244,21 +244,18 @@ export interface CommitResult {
  * lead/enrollment/earlier payments are NOT rolled back — they are correct domain state; the
  * failure is returned as a warning and the salesperson finishes on the lead page.
  */
-export async function commitEnrollmentBundle(actor: Actor, input: ReviewedBundle): Promise<CommitResult> {
-  requirePermission(actor, "lead:create");
-  requirePermission(actor, "payment:create");
-
-  const warnings: string[] = [];
-
-  // 1. Lead (name + contact) — dup mobile/email guard here is the re-submit backstop.
-  const { id: leadId } = await createLead(actor, {
-    fullName: input.learner.fullName,
-    mobile: input.learner.mobile,
-    email: input.learner.email,
-    leadSource: input.learner.leadSource,
-  });
-
-  // 2. Basic details (DOB / structured address / pincode / email / mobile).
+/**
+ * Shared fill steps for an EXISTING lead: basic details → course (fee from Pricing Master) →
+ * draft (locks the fee) → one Payment per proof (each PENDING_AUDIT). Used by both the
+ * create-from-upload (commit) and fill-existing-lead (apply) paths. A failed later payment is
+ * a warning, not a rollback — earlier valid work stays. generateDraft MUST run before capture.
+ */
+async function fillLeadFromBundle(
+  actor: Actor,
+  leadId: string,
+  input: ReviewedBundle,
+  warnings: string[],
+): Promise<{ enrollmentId: string; paymentIds: string[] }> {
   await updateBasicDetails(actor, leadId, {
     fullName: input.learner.fullName,
     dob: input.learner.dob,
@@ -274,7 +271,6 @@ export async function commitEnrollmentBundle(actor: Actor, input: ReviewedBundle
     remarks: input.learner.remarks,
   });
 
-  // 3. Program + plan → fee computed + snapshotted from Pricing Master (never the text fee).
   await selectCourse(actor, leadId, {
     program: input.course.program,
     plan: input.course.plan,
@@ -282,14 +278,12 @@ export async function commitEnrollmentBundle(actor: Actor, input: ReviewedBundle
     commencingDate: input.course.commencingDate ?? null,
   });
 
-  // 4. Generate the draft → LOCKS the fee + builds the payment schedule. MUST precede capture.
-  await generateDraft(actor, leadId);
+  await generateDraft(actor, leadId); // locks the fee + builds the schedule — before any capture
 
   const lead = await getLeadForActor(actor, leadId);
   const enrollmentId = lead.enrollment?.id;
   if (!enrollmentId) throw new EnrollmentIntakeError("The enrollment could not be created.");
 
-  // 5. One Payment per proof, sequentially → each enters PENDING_AUDIT (Nandhiya's L1).
   const paymentIds: string[] = [];
   for (let i = 0; i < input.payments.length; i++) {
     const p = input.payments[i];
@@ -315,6 +309,36 @@ export async function commitEnrollmentBundle(actor: Actor, input: ReviewedBundle
       warnings.push(`Payment ${i + 1} (Txn ${p.transactionId}) was not recorded: ${reason}`);
     }
   }
+  return { enrollmentId, paymentIds };
+}
 
+export async function commitEnrollmentBundle(actor: Actor, input: ReviewedBundle): Promise<CommitResult> {
+  requirePermission(actor, "lead:create");
+  requirePermission(actor, "payment:create");
+
+  const warnings: string[] = [];
+  // Lead (name + contact) — the dup mobile/email guard here is the re-submit backstop.
+  const { id: leadId } = await createLead(actor, {
+    fullName: input.learner.fullName,
+    mobile: input.learner.mobile,
+    email: input.learner.email,
+    leadSource: input.learner.leadSource,
+  });
+  const { enrollmentId, paymentIds } = await fillLeadFromBundle(actor, leadId, input, warnings);
+  return { leadId, enrollmentId, paymentIds, warnings };
+}
+
+/**
+ * Fill an EXISTING lead from a reviewed bundle — the lead page's "Auto-fill from uploads".
+ * Same fill steps as commit, minus createLead; ownership is enforced by getLeadForActor and
+ * again inside each reused service. Safe to run on a fresh lead or to top up a partial one.
+ */
+export async function applyEnrollmentBundle(actor: Actor, leadId: string, input: ReviewedBundle): Promise<CommitResult> {
+  requirePermission(actor, "lead:update:own");
+  requirePermission(actor, "payment:create");
+  await getLeadForActor(actor, leadId); // ownership — throws if not permitted / not found
+
+  const warnings: string[] = [];
+  const { enrollmentId, paymentIds } = await fillLeadFromBundle(actor, leadId, input, warnings);
   return { leadId, enrollmentId, paymentIds, warnings };
 }

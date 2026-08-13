@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Program, Plan, ComboMode, ConcessionThresholdType } from "@prisma/client";
 import { FeeBreakdown } from "@/components/shared/fee-breakdown";
@@ -13,6 +13,12 @@ import {
   decideConcessionAction,
   checkDuplicateAction,
 } from "@/app/(sales)/leads/actions";
+import { extractEnrollmentBundleAction, applyEnrollmentBundleAction } from "@/app/(sales)/leads/enrollment-actions";
+import {
+  EnrollmentBundleForm,
+  type BundlePreview,
+  type ReviewedBundleValue,
+} from "@/app/(sales)/leads/enrollment-bundle-form";
 
 export interface LeadDetail {
   id: string;
@@ -76,9 +82,22 @@ export function LeadDetailClient({ lead, canApproveConcession }: { lead: LeadDet
 
       {banner && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">{banner}</p>}
 
-      <BasicDetails lead={lead} pending={pending} run={run} />
+      <AutofillPanel leadId={lead.id} />
 
-      <CourseSelection lead={lead} pending={pending} run={run} />
+      {/* key → remount so the forms re-init from freshly saved data after an auto-fill/refresh */}
+      <BasicDetails
+        key={`bd:${lead.dob}|${lead.doorNo}|${lead.street}|${lead.address}|${lead.district}|${lead.state}|${lead.pincode}|${lead.email}|${lead.mobile}`}
+        lead={lead}
+        pending={pending}
+        run={run}
+      />
+
+      <CourseSelection
+        key={`cs:${lead.enrollment?.program}|${lead.enrollment?.plan}|${lead.enrollment?.comboMode}|${lead.enrollment?.commencingDate}`}
+        lead={lead}
+        pending={pending}
+        run={run}
+      />
 
       {lead.enrollment?.standardFee && (
         <div className={card}>
@@ -217,6 +236,122 @@ function ConcessionSection({ lead, pending, run, canApprove }: { lead: LeadDetai
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * "Auto-fill from uploads" on an existing lead — the salesperson drops the payment
+ * screenshot(s)/PDF(s) and pastes the message; the tool fills THIS lead's basic details,
+ * course and payments (reusing the same extract → review → apply engine as the intake page).
+ */
+function AutofillPanel({ leadId }: { leadId: string }) {
+  const router = useRouter();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [preview, setPreview] = useState<BundlePreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [extracting, extract] = useTransition();
+  const [applying, apply] = useTransition();
+
+  const inputCls = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-blue dark:border-slate-700 dark:bg-slate-800";
+  const navyBtn = "rounded-lg bg-brand-navy px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-navy-700 disabled:opacity-50";
+
+  function onExtract() {
+    setError(null); setWarnings([]);
+    extract(async () => {
+      const fd = new FormData();
+      fd.append("text", text);
+      for (const f of files) fd.append("file", f);
+      const res = await extractEnrollmentBundleAction(fd);
+      if ("error" in res) return setError(res.error ?? "Couldn't read the uploads. Please try again.");
+      setPreview(res.preview as BundlePreview);
+      setWarnings((res.preview as BundlePreview).warnings);
+    });
+  }
+
+  function onApply(bundle: ReviewedBundleValue) {
+    setError(null); setWarnings([]);
+    apply(async () => {
+      const res = await applyEnrollmentBundleAction({ leadId, ...bundle });
+      if (res?.serverError) return setError(res.serverError);
+      if (res?.validationErrors) return setError("Please check the highlighted fields and try again.");
+      const data = res?.data;
+      if (data?.ok) {
+        setPreview(null); setText(""); setFiles([]); setOpen(false);
+        setWarnings(data.warnings);
+        if (fileRef.current) fileRef.current.value = "";
+        router.refresh();
+      }
+    });
+  }
+
+  return (
+    <section className="space-y-3 rounded-xl border border-brand-blue/40 bg-brand-blue-50/60 p-4 dark:border-slate-700 dark:bg-slate-900">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-brand-navy dark:text-slate-100">Auto-fill from uploads</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Drop the payment screenshot(s)/PDF(s) and paste the enrollment message — we fill this lead&apos;s
+            details, course and payments. Nothing typed by hand.
+          </p>
+        </div>
+        {!open && !preview && (
+          <button type="button" onClick={() => setOpen(true)} className={navyBtn}>Upload &amp; auto-fill</button>
+        )}
+      </div>
+
+      {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">{error}</p>}
+      {warnings.length > 0 && (
+        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          <ul className="list-disc pl-5">{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+        </div>
+      )}
+
+      {open && !preview && (
+        <div className="space-y-3">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={6}
+            placeholder={"Paste the *Enrollment Confirmation* message (Full Name, DOB, Address, Program, Course fee, …)"}
+            className={inputCls}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,application/pdf"
+            multiple
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-navy file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-navy-700 dark:text-slate-300"
+          />
+          {files.length > 0 && (
+            <p className="text-xs text-slate-500">{files.length} file{files.length > 1 ? "s" : ""}: {files.map((f) => f.name).join(", ")}</p>
+          )}
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onExtract} disabled={extracting || (!text.trim() && files.length === 0)} className={navyBtn}>
+              {extracting ? "Reading…" : "Read & fill"}
+            </button>
+            <button type="button" onClick={() => setOpen(false)} disabled={extracting} className="text-sm text-slate-500 hover:underline">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {preview && (
+        <div className="pt-2">
+          <EnrollmentBundleForm
+            preview={preview}
+            files={files}
+            submitLabel="Apply to this lead"
+            submitting={applying}
+            onSubmit={onApply}
+            onBack={() => setPreview(null)}
+          />
+        </div>
+      )}
+    </section>
   );
 }
 

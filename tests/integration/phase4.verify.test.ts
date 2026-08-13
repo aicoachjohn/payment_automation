@@ -132,7 +132,8 @@ describe("#5 — enter-once: no second screen re-asks name/address/email/mobile 
         if (
           rel.includes("leads/[id]/lead-detail-client") ||
           rel.includes("leads/new/") ||
-          rel.includes("leads/intake/")
+          rel.includes("leads/intake/") ||
+          rel.includes("leads/enrollment-bundle-form") // shared review used by intake + lead page
         ) {
           continue;
         }

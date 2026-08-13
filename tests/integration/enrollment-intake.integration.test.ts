@@ -14,7 +14,8 @@ import { loadEnv } from "../e2e/helpers/env";
 loadEnv();
 process.env.PROOF_SIGNING_SECRET = process.env.PROOF_SIGNING_SECRET ?? process.env.AUTH_SECRET ?? "test-proof-signing-secret-000000";
 
-const { extractEnrollmentBundle, commitEnrollmentBundle } = await import("@/server/services/enrollment-intake");
+const { extractEnrollmentBundle, commitEnrollmentBundle, applyEnrollmentBundle } = await import("@/server/services/enrollment-intake");
+const { createLead } = await import("@/server/services/leads");
 type Preview = Awaited<ReturnType<typeof extractEnrollmentBundle>>;
 
 const prisma = new PrismaClient();
@@ -211,5 +212,34 @@ describe("enrollment intake — the real one-bundle flow", () => {
 
     const count = await prisma.payment.count({ where: { enrollmentId: (await prisma.lead.findUniqueOrThrow({ where: { id: result.leadId }, include: { enrollment: true } })).enrollment!.id } });
     expect(count).toBe(1);
+  });
+
+  it("applies a bundle to an EXISTING lead (lead-page auto-fill): basic + course + payments", async () => {
+    // A bare lead created the manual way — no basic details, no enrollment yet.
+    const { id: leadId } = await createLead(mathiew, { fullName: "Suresh Kumar Krishnasamy", leadSource: TAG });
+    const preview = await extractEnrollmentBundle(mathiew, {
+      text: enrollmentText("suresh.it4@example.com", "9876500004"),
+      proofs: [
+        { bytes: paytmProof("34,999", "APPLY20260811A"), originalFilename: "paytm.jpg" },
+        { bytes: neftProof("50000", "APPLY20260811B"), originalFilename: "neft.jpg" },
+      ],
+    });
+    const reviewed = toReviewed(preview);
+    const result = await applyEnrollmentBundle(mathiew, leadId, reviewed);
+
+    expect(result.leadId).toBe(leadId);
+    expect(result.paymentIds).toHaveLength(2);
+    expect(result.warnings).toEqual([]);
+
+    const lead = await prisma.lead.findUniqueOrThrow({
+      where: { id: leadId },
+      include: { enrollment: { include: { payments: true } } },
+    });
+    expect(lead.dob).not.toBeNull(); // basic details filled onto the pre-existing lead
+    expect(lead.pincode).toBe("626136");
+    expect(lead.enrollment?.finalApprovedFee?.toString()).toBe("84999");
+    expect(lead.enrollment?.feeLockedAt).not.toBeNull();
+    expect(lead.enrollment?.payments).toHaveLength(2);
+    for (const p of lead.enrollment!.payments) expect(p.auditStatus).toBe(AuditStatus.PENDING_AUDIT);
   });
 });

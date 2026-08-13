@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/server/auth/session";
 import { authActionClient } from "@/server/safe-action";
 import { AuthorizationError } from "@/server/auth/permissions";
-import { reviewedBundleSchema } from "@/lib/schemas";
+import { reviewedBundleSchema, applyBundleSchema } from "@/lib/schemas";
 import {
   extractEnrollmentBundle,
   commitEnrollmentBundle,
+  applyEnrollmentBundle,
   EnrollmentIntakeError,
 } from "@/server/services/enrollment-intake";
 import { PaymentError } from "@/server/services/payments";
@@ -74,5 +75,16 @@ export const commitEnrollmentBundleAction = authActionClient
     const result = await commitEnrollmentBundle(ctx.actor, parsedInput);
     revalidatePath("/sales");
     revalidatePath(`/leads/${result.leadId}`);
+    return { ok: true as const, ...result };
+  });
+
+/** Apply the reviewed bundle to an EXISTING lead (lead-page "Auto-fill from uploads"). */
+export const applyEnrollmentBundleAction = authActionClient
+  .schema(applyBundleSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const { leadId, ...bundle } = parsedInput;
+    const result = await applyEnrollmentBundle(ctx.actor, leadId, bundle);
+    revalidatePath("/sales");
+    revalidatePath(`/leads/${leadId}`);
     return { ok: true as const, ...result };
   });

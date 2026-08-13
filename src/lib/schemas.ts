@@ -242,11 +242,14 @@ export const enrollmentExtractTextSchema = z.object({
 });
 
 /** The reviewed + confirmed bundle the intake screen posts. Fee is NEVER in here (rule #3). */
-export const reviewedBundleSchema = z.object({
+export const reviewedBundleObject = z.object({
   learner: basicDetailsSchema,
   course: courseSelectionObject.refine(comboRule, comboRuleOpts),
   payments: z.array(captureItemSchema).min(1, "At least one payment proof is required."),
 });
+export const reviewedBundleSchema = reviewedBundleObject;
+/** Same bundle, but applied to an EXISTING lead (the lead page's "Auto-fill from uploads"). */
+export const applyBundleSchema = leadIdSchema.merge(reviewedBundleObject);
 
 // ── Phase 7: L1 audit decisions ───────────────────────────────────────────────
 
