@@ -2,10 +2,18 @@
 
 **Read this, then `CLAUDE.md` (constitution), then the two memory files, before writing code.**
 Last completed: **Phase 12** (Hardening, Testing, UAT & Deployment) — the FINAL build phase.
-All 13 phases (0–12) are complete. The software is functionally done and tested (253 unit +
+All 13 phases (0–12) are complete. The software is functionally done and tested (259 unit +
 151 integration green; lint/typecheck/build clean). Remaining work to production is
 **operational**, tracked honestly in `docs/GO_LIVE_READINESS.md` (pen test, restore drill,
 infra encryption/TLS, named owners, load test). No further build phases remain.
+
+**POST-BUILD (the user is now iterating on the running app):** brand restyle (navy/cyan +
+logo home button), and **auto-fill new lead** from pasted text or an uploaded document
+(`src/server/services/lead-intake.ts`, `parseLeadText` in `src/server/ocr`). Full running
+instructions, temp logins, the 2FA/OTP + account-lockout procedures, and the open follow-ups
+(wire the real `public/proitbridge-logo.png`; optionally extend auto-fill to Basic Details)
+are in the **`proitbridge-build-progress` memory** (auto-loaded) — read that for where to
+continue.
 
 ---
 
