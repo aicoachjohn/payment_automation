@@ -3,7 +3,7 @@
  * mandatory human confirmation (enforced in the payment service) keeps it safe. No
  * provider name is referenced anywhere outside this folder — callers use getOcrProvider.
  */
-import { PaymentMethod } from "@prisma/client";
+import { PaymentMethod, Plan } from "@prisma/client";
 
 export interface OcrFields {
   receivedAmount?: string; // normalised, e.g. "34999" / "50000"
@@ -94,6 +94,14 @@ const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
 };
 
+/** Month-name alternation (full or 3-letter) — restricts date regexes to real months. */
+const MONTH_ALT =
+  "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t)?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
+
+const monthIndex = (name: string): number => MONTHS[name.slice(0, 3).toLowerCase()];
+const isoDate = (year: number, month0: number, day: number): string =>
+  new Date(Date.UTC(year, month0, day)).toISOString();
+
 function mapMethod(text: string): PaymentMethod | undefined {
   if (/\bUPI\b|paytm|gpay|phonepe/i.test(text)) return PaymentMethod.UPI;
   if (/\bNEFT\b/i.test(text)) return PaymentMethod.NEFT;
@@ -104,12 +112,23 @@ function mapMethod(text: string): PaymentMethod | undefined {
   return undefined;
 }
 
+/** A line that is clearly a receipt label/header, not a person's name. */
+const NAME_NOISE =
+  /^(transaction|payment|account|paid|success|from|to|payee|payer|beneficiary|sender|amount|reference|ref|utr|date|bank|status|nick\s*name|ifsc|micr|remarks|frequency|disclaimer|paytm|gpay|phonepe|google\s*pay|mode|balance|available)\b/i;
+/** The payee is always ProITbridge / a bank — never the payer we want. */
+const PAYEE_NOISE = /proitbridge|proit\s*bridge|kotak|mahindra|indian\s+bank|axis|hdfc|\bsbi\b|icici|yes\s*bank/i;
+/** One line, 2–4 Title/UPPER-case words, initials allowed (e.g. "Ms S Nirmala", "MEGALA SEGAR"). */
+const NAME_LINE = /^[A-Z][A-Za-z.]*(?:[ \t]+[A-Z][A-Za-z.]*){1,3}$/;
+
 /**
  * Deterministic receipt parser — pure. Handles the real ProITbridge proof formats:
- * Paytm/UPI screenshots ("₹34,999", "Ref No: 3122 4582 5686") and bank NEFT receipts
- * ("Amount : Rs.50000", "Reference No: 2DHERX1J5191").
+ * Paytm/UPI screenshots ("₹34,999", "Ref No: 3122 4582 5686", a YEARLESS date like
+ * "11 Aug, 06:45 PM") and bank NEFT receipts ("Amount : Rs.50000",
+ * "Reference No: 2DHERX1J5191"). `fallbackYear` supplies the year for a yearless proof
+ * date (the caller passes the enrollment / current year); without it a yearless date is
+ * left unset rather than guessed.
  */
-export function parseReceiptText(text: string): OcrResult {
+export function parseReceiptText(text: string, fallbackYear?: number): OcrResult {
   const fields: OcrFields = {};
   const confidence: Record<string, number> = {};
 
@@ -125,17 +144,20 @@ export function parseReceiptText(text: string): OcrResult {
     confidence.transactionId = 0.9;
   }
 
-  // Date: "11 Aug 2026" or "08/11/2026" (DD/MM/YYYY).
-  const dMon = /(\d{1,2})\s+([A-Za-z]{3,9})\.?\s*,?\s*(\d{4})/.exec(text);
-  const dSlash = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(text);
-  if (dMon && MONTHS[dMon[2].slice(0, 3).toLowerCase()] !== undefined) {
-    const d = new Date(Date.UTC(Number(dMon[3]), MONTHS[dMon[2].slice(0, 3).toLowerCase()], Number(dMon[1])));
-    fields.paymentDate = d.toISOString();
+  // Date, most-specific first: "11 Aug 2026" → "08/11/2026" (DD/MM) → yearless "11 Aug".
+  const dMonYr = new RegExp(`\\b(\\d{1,2})[ \\t]+(${MONTH_ALT})\\.?[ \\t]*,?[ \\t]*(\\d{4})\\b`, "i").exec(text);
+  const dSlash = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/.exec(text);
+  const dMonNoYr = new RegExp(`\\b(\\d{1,2})[ \\t]+(${MONTH_ALT})\\b`, "i").exec(text);
+  if (dMonYr) {
+    fields.paymentDate = isoDate(Number(dMonYr[3]), monthIndex(dMonYr[2]), Number(dMonYr[1]));
     confidence.paymentDate = 0.85;
   } else if (dSlash) {
-    const d = new Date(Date.UTC(Number(dSlash[3]), Number(dSlash[2]) - 1, Number(dSlash[1])));
-    fields.paymentDate = d.toISOString();
+    // Indian day-first convention (DD/MM/YYYY) — genuinely ambiguous for day ≤ 12.
+    fields.paymentDate = isoDate(Number(dSlash[3]), Number(dSlash[2]) - 1, Number(dSlash[1]));
     confidence.paymentDate = 0.7;
+  } else if (dMonNoYr && fallbackYear !== undefined) {
+    fields.paymentDate = isoDate(fallbackYear, monthIndex(dMonNoYr[2]), Number(dMonNoYr[1]));
+    confidence.paymentDate = 0.55; // year inferred → lower confidence
   }
 
   const method = mapMethod(text);
@@ -144,16 +166,121 @@ export function parseReceiptText(text: string): OcrResult {
     confidence.paymentMethod = 0.8;
   }
 
-  // Payer name: the name after "From", else the first Title/UPPER 2–3 word name line.
-  const from = /From\s*[:\n]?\s*([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){1,3})/.exec(text);
-  const caps = /^([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){1,3})$/m.exec(text);
-  const name = from?.[1] ?? caps?.[1];
-  if (name) {
-    fields.payerName = name.trim();
-    confidence.payerName = from ? 0.7 : 0.4;
+  // Payer name: prefer "From <name>" (but not "From Account …"); else the first name-shaped
+  // line that is not a header/label and not the payee (ProITbridge / a bank).
+  let payerName: string | undefined;
+  let payerConfidence = 0;
+  const from = /From\b[ \t]*[:\n]?[ \t]*((?:[A-Z][A-Za-z.]*)(?:[ \t]+[A-Z][A-Za-z.]*){0,3})/.exec(text);
+  if (from && !/^(account|a\/c|bank|upi)\b/i.test(from[1].trim())) {
+    payerName = from[1].trim();
+    payerConfidence = 0.7;
+  }
+  if (!payerName) {
+    for (const rawLine of text.split(/\n/)) {
+      const line = rawLine.trim();
+      if (NAME_LINE.test(line) && !NAME_NOISE.test(line) && !PAYEE_NOISE.test(line)) {
+        payerName = line;
+        payerConfidence = 0.4;
+        break;
+      }
+    }
+  }
+  if (payerName) {
+    fields.payerName = payerName;
+    confidence.payerName = payerConfidence;
   }
 
   return { fields, confidence, raw: { text: text.slice(0, 2000) } };
+}
+
+/** Learner + program fields extracted from the WhatsApp "Enrollment Confirmation" message. */
+export interface EnrollmentOcrFields {
+  fullName?: string;
+  dob?: string; // ISO date (day-first / DD-MM convention assumed)
+  fullAddress?: string;
+  pincode?: string;
+  email?: string;
+  mobile?: string; // digits, international "+…" preserved
+  plan?: Plan;
+  programName?: string; // free-text marketing name
+  courseFee?: string; // digits — a CROSS-CHECK only, never authoritative (rule #3)
+  commencingDate?: string; // ISO date
+}
+
+/**
+ * Parse the learner + program details from the pasted "Enrollment Confirmation" message.
+ * Pure + deterministic (unit-testable, identical for pasted text and OCR'd document text).
+ * Assistive only: every field is reviewed and confirmed by the salesperson before anything
+ * is created. Dates use the Indian day-first (DD/MM) convention; the review screen is the
+ * human backstop for the day≤12 ambiguity.
+ */
+export function parseEnrollmentText(text: string): EnrollmentOcrFields {
+  const out: EnrollmentOcrFields = {};
+  const labelled = (labels: string[]): string | undefined => {
+    const re = new RegExp(`\\b(?:${labels.join("|")})\\s*(?:No\\.?|ID)?\\s*[:\\-]\\s*(.+)`, "i");
+    const m = re.exec(text);
+    return m ? m[1].trim() : undefined;
+  };
+
+  const name = labelled(["Full Name", "Name", "Student", "Learner", "Candidate"]);
+  if (name) out.fullName = name.replace(/["'*]/g, "").trim().replace(/\s+/g, " ");
+
+  const dobRaw = labelled(["DOB", "Date of Birth", "D\\.O\\.B", "Birth Date"]);
+  if (dobRaw) {
+    const m = /(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})/.exec(dobRaw);
+    if (m) out.dob = isoDate(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  }
+
+  const addr = labelled(["Full Address", "Address", "Residential Address"]);
+  if (addr) out.fullAddress = addr.replace(/\*/g, "").trim();
+
+  const pinRaw = labelled(["Pincode", "Pin Code", "PIN", "Postal Code", "Zip"]);
+  if (pinRaw) {
+    const p = /\b(\d{6})\b/.exec(pinRaw);
+    if (p) out.pincode = p[1];
+  }
+
+  const email = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.exec(text);
+  if (email) out.email = email[0].toLowerCase();
+
+  // Mobile: labelled value first (allows an international +country prefix, e.g. "+1 480…");
+  // else the deterministic Indian-mobile finder.
+  const mobRaw = labelled(["Mobile", "Phone", "Contact", "Whatsapp", "Mob", "Cell"]);
+  if (mobRaw) {
+    const m = /(\+?\d[\d\s.\-]{6,17}\d)/.exec(mobRaw);
+    if (m) out.mobile = m[1].replace(/[\s.\-]/g, "");
+  }
+  if (!out.mobile) {
+    const m = extractMobile(text);
+    if (m) out.mobile = m;
+  }
+
+  // Plan — prefer the header tag ("Enrollment Confirmation - PREMIUM") or a quoted plan,
+  // else the first plan keyword anywhere.
+  const planTag =
+    /Enrollment Confirmation\s*[-–]\s*([A-Za-z]+)/i.exec(text) ??
+    /["'“”]\s*(PREMIUM|ADVANCED)\s*["'“”]/i.exec(text) ??
+    /\b(premium|advanced)\b/i.exec(text);
+  if (planTag) out.plan = /premium/i.test(planTag[1]) ? Plan.PREMIUM : Plan.ADVANCED;
+
+  const prog = labelled(["Program Name", "Programme Name", "Course Name", "Program", "Course"]);
+  if (prog) {
+    out.programName = prog
+      .replace(/\*/g, "")
+      .replace(/["'“”][A-Za-z ]+["'“”]\s*$/, "") // drop a trailing quoted plan tag
+      .trim();
+  }
+
+  const fee = /(?:Course\s*fee|Total\s*fee|Program\s*fee|Fee)\s*[:\-]?\s*\*?\s*(?:₹|Rs\.?|INR\.?)\s*([\d,]+)/i.exec(text);
+  if (fee) out.courseFee = fee[1].replace(/,/g, "");
+
+  const cm = new RegExp(
+    `Commenc\\w*\\s*Date\\s*[:\\-]?\\s*\\*?\\s*(\\d{1,2})(?:st|nd|rd|th)?[ \\t]+(${MONTH_ALT})[ \\t]+(\\d{4})`,
+    "i",
+  ).exec(text);
+  if (cm) out.commencingDate = isoDate(Number(cm[3]), monthIndex(cm[2]), Number(cm[1]));
+
+  return out;
 }
 
 /** Deterministic mock, used in dev and tests. Decodes the buffer and parses it. */
@@ -161,7 +288,7 @@ class MockOcrProvider implements OcrProvider {
   readonly name = "mock";
   async extract(fileBuffer: Uint8Array): Promise<OcrResult> {
     const text = new TextDecoder("utf-8", { fatal: false }).decode(fileBuffer);
-    return { ...parseReceiptText(text), text };
+    return { ...parseReceiptText(text, new Date().getUTCFullYear()), text };
   }
 }
 
@@ -188,7 +315,7 @@ class GoogleVisionProvider implements OcrProvider {
     if (!res.ok) throw new Error(`OCR request failed (${res.status}).`);
     const json = (await res.json()) as { responses?: { fullTextAnnotation?: { text?: string } }[] };
     const text = json.responses?.[0]?.fullTextAnnotation?.text ?? "";
-    return { ...parseReceiptText(text), raw: { provider: "vision" }, text };
+    return { ...parseReceiptText(text, new Date().getUTCFullYear()), raw: { provider: "vision" }, text };
   }
 }
 
