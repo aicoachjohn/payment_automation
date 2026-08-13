@@ -126,8 +126,16 @@ describe("#5 — enter-once: no second screen re-asks name/address/email/mobile 
         if (statSync(p).isDirectory()) { walk(p); continue; }
         if (!/\.(tsx|ts)$/.test(name)) continue;
         const rel = p.replace(process.cwd() + "/", "");
-        // The lead detail/new forms are the ONE place these are captured.
-        if (rel.includes("leads/[id]/lead-detail-client") || rel.includes("leads/new/")) continue;
+        // The lead detail/new forms + the enrollment-intake front door are the sanctioned
+        // FIRST-capture surfaces (intake feeds updateBasicDetails once — it isn't a second
+        // screen re-asking after the fact, so enter-once/BR-02 still holds).
+        if (
+          rel.includes("leads/[id]/lead-detail-client") ||
+          rel.includes("leads/new/") ||
+          rel.includes("leads/intake/")
+        ) {
+          continue;
+        }
         const src = readFileSync(p, "utf8");
         // A screen that RE-COLLECTS the learner's address is the enter-once violation.
         // (Search boxes that filter by name/mobile are fine — they don't re-ask.)
