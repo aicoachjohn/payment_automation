@@ -10,7 +10,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <div className="rounded-2xl bg-white px-6 py-3.5 shadow-xl shadow-black/20">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/proitbridge-logo.svg" alt="ProITbridge" className="h-9 w-auto" />
+            <img src="/proitbridge-logo-mark.png" alt="ProITbridge" className="h-9 w-auto" />
           </div>
           <p className="text-sm font-medium text-slate-300">Payment &amp; Enrollment Automation</p>
         </div>

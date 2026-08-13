@@ -44,7 +44,7 @@ export function AppShell({
             {/* Logo = home button */}
             <Link href={ROLE_HOME[user.role]} aria-label="ProITbridge home" className="shrink-0">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/proitbridge-logo.svg" alt="ProITbridge" width={146} height={35} className="h-[34px] w-auto" />
+              <img src="/proitbridge-logo-mark.png" alt="ProITbridge" width={143} height={34} className="h-[34px] w-auto" />
             </Link>
             <nav className="flex flex-wrap gap-1 text-sm">
               {nav.map((item) => (
