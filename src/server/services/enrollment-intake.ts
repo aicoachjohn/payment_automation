@@ -10,7 +10,6 @@
  */
 import "server-only";
 import { ComboMode, PaymentMethod, Plan, Program } from "@prisma/client";
-import { db } from "@/server/db";
 import { requirePermission, type Actor } from "@/server/auth/permissions";
 import { eq } from "@/server/money";
 import { parseEnrollmentText } from "@/server/ocr";

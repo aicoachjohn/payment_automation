@@ -209,8 +209,8 @@ export const draftTemplateSchema = z.object({
 
 export const proofIdSchema = z.object({ proofId: z.string().min(1) });
 
-export const capturePaymentSchema = z.object({
-  leadId: z.string().min(1),
+/** One captured payment (proof + confirmed fields), shared by single-capture and intake. */
+export const captureItemSchema = z.object({
   proof: z.object({
     key: z.string().min(1),
     checksum: z.string().min(1),
@@ -230,6 +230,22 @@ export const capturePaymentSchema = z.object({
   }),
   varianceReason: z.string().trim().max(1000).optional(),
   manualEntryNoOcr: z.boolean().default(false),
+});
+
+export const capturePaymentSchema = leadIdSchema.merge(captureItemSchema);
+
+// ── Enrollment intake (one-bundle hands-free capture) ─────────────────────────
+
+/** Paste-the-message extract call (proofs travel as multipart, not in this schema). */
+export const enrollmentExtractTextSchema = z.object({
+  text: z.string().trim().min(2, "Paste the enrollment message to auto-fill.").max(8000),
+});
+
+/** The reviewed + confirmed bundle the intake screen posts. Fee is NEVER in here (rule #3). */
+export const reviewedBundleSchema = z.object({
+  learner: basicDetailsSchema,
+  course: courseSelectionObject.refine(comboRule, comboRuleOpts),
+  payments: z.array(captureItemSchema).min(1, "At least one payment proof is required."),
 });
 
 // ── Phase 7: L1 audit decisions ───────────────────────────────────────────────
