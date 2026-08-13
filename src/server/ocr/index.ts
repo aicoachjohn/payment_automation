@@ -292,6 +292,54 @@ class MockOcrProvider implements OcrProvider {
   }
 }
 
+// ── On-device OCR: PDF text-layer (unpdf) + image OCR (tesseract.js) ───────────
+// No cloud key, works offline (OCR_PROVIDER=local). PDFs with a text layer extract
+// exactly; image screenshots go through Tesseract (best-effort — the mandatory review
+// screen confirms/corrects every field, so imperfect OCR never means lost data, BR-20).
+
+/** Extract a PDF's text layer via unpdf (pdf.js under the hood). Empty for scanned PDFs. */
+async function extractPdfText(bytes: Uint8Array): Promise<string> {
+  const { extractText, getDocumentProxy } = await import("unpdf");
+  const pdf = await getDocumentProxy(bytes);
+  const { text } = await extractText(pdf, { mergePages: true });
+  return Array.isArray(text) ? text.join("\n") : (text ?? "");
+}
+
+// One shared Tesseract worker, created lazily and reused (per-call creation is very slow).
+type TesseractWorker = Awaited<ReturnType<typeof import("tesseract.js").createWorker>>;
+let tesseractWorker: Promise<TesseractWorker> | null = null;
+function getTesseractWorker(): Promise<TesseractWorker> {
+  if (!tesseractWorker) {
+    tesseractWorker = import("tesseract.js").then(({ createWorker }) => createWorker("eng"));
+  }
+  return tesseractWorker;
+}
+
+async function ocrImage(bytes: Uint8Array): Promise<string> {
+  const worker = await getTesseractWorker();
+  const { data } = await worker.recognize(Buffer.from(bytes));
+  return data.text ?? "";
+}
+
+class LocalOcrProvider implements OcrProvider {
+  readonly name = "local";
+  async extract(fileBuffer: Uint8Array, mimeType: string): Promise<OcrResult> {
+    let text = "";
+    try {
+      if (mimeType === "application/pdf") text = await extractPdfText(fileBuffer);
+      else if (mimeType.startsWith("image/")) text = await ocrImage(fileBuffer);
+    } catch {
+      text = ""; // extraction failed → fall through to the UTF-8 fallback / manual entry
+    }
+    // Fallback for embedded-text files (and scanned PDFs whose text layer was empty).
+    if (!text.trim()) {
+      const decoded = new TextDecoder("utf-8", { fatal: false }).decode(fileBuffer);
+      if (/[\x20-\x7e]{3,}/.test(decoded)) text = decoded;
+    }
+    return { ...parseReceiptText(text, new Date().getUTCFullYear()), raw: { provider: "local" }, text };
+  }
+}
+
 /**
  * Google Cloud Vision text detection over its REST API using `fetch` (no SDK — keeps the
  * fixed stack). Selected by OCR_PROVIDER=vision; the key comes ONLY from env (FR-SEC-12).
@@ -322,7 +370,9 @@ class GoogleVisionProvider implements OcrProvider {
 let provider: OcrProvider | null = null;
 export function getOcrProvider(): OcrProvider {
   if (provider) return provider;
-  provider = (process.env.OCR_PROVIDER ?? "mock") === "vision" ? new GoogleVisionProvider() : new MockOcrProvider();
+  const kind = process.env.OCR_PROVIDER ?? "mock";
+  provider =
+    kind === "vision" ? new GoogleVisionProvider() : kind === "local" ? new LocalOcrProvider() : new MockOcrProvider();
   return provider;
 }
 

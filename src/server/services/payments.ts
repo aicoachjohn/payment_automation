@@ -68,7 +68,9 @@ export async function stageProof(
   const key = newProofKey();
   await storage.put(key, file.bytes, validation.type);
 
-  const ocr = await runOcr(file.bytes, validation.type);
+  // On-device OCR can be slow on the FIRST image (Tesseract downloads its model once);
+  // give it a generous ceiling. A timeout still degrades gracefully to manual entry.
+  const ocr = await runOcr(file.bytes, validation.type, 60_000);
   await storage.putJson(sidecarKey(key), { fields: ocr.fields, confidence: ocr.confidence, raw: ocr.raw });
 
   return {

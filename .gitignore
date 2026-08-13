@@ -54,3 +54,6 @@ next-env.d.ts
 
 # payment proof local storage (dev)
 /.proof-storage
+
+# tesseract.js OCR language model (downloaded at runtime, ~11MB)
+*.traineddata

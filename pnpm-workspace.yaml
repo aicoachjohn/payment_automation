@@ -9,6 +9,8 @@ allowBuilds:
   esbuild: true
   prisma: true
   sharp: false
+  # tesseract.js's only postinstall is an OpenCollective donation banner — skip it.
+  tesseract.js: false
   unrs-resolver: false
 onlyBuiltDependencies:
   - "@prisma/client"

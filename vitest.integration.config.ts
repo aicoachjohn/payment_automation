@@ -11,6 +11,9 @@ export default defineConfig({
     environment: "node",
     include: ["tests/integration/**/*.test.ts"],
     fileParallelism: false,
+    // Tests use the deterministic mock OCR (their fixtures carry embedded text). Set here
+    // so it wins over .env's OCR_PROVIDER=local (loadEnv only fills UNSET vars).
+    env: { OCR_PROVIDER: "mock" },
   },
   resolve: {
     alias: {
