@@ -395,28 +395,58 @@ class LocalOcrProvider implements OcrProvider {
 }
 
 /**
- * Google Cloud Vision text detection over its REST API using `fetch` (no SDK — keeps the
- * fixed stack). Selected by OCR_PROVIDER=vision; the key comes ONLY from env (FR-SEC-12).
- * The raw text is mapped by the SAME deterministic parser used in dev, so no field logic
- * moved. A quota error or timeout propagates and `runOcr` falls back to manual entry
- * (FR-SAL-47, NFR-02). To use AWS Textract / Azure DI instead, add a sibling provider —
- * the interface and the manual-entry fallback are unchanged.
+ * Google Cloud Vision DOCUMENT_TEXT_DETECTION over its REST API using `fetch` (no SDK —
+ * keeps the fixed stack). The key comes ONLY from env (OCR_API_KEY, FR-SEC-12). Vision reads
+ * stylized screenshots (₹ figures, colour logos) far better than on-device OCR. Throws on a
+ * missing key / non-2xx / per-image API error so the caller can fall back.
+ */
+async function visionImageOcr(bytes: Uint8Array): Promise<string> {
+  const apiKey = process.env.OCR_API_KEY;
+  if (!apiKey) throw new Error("Vision OCR is not configured (OCR_API_KEY missing).");
+  const base64 = Buffer.from(bytes).toString("base64");
+  const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requests: [{ image: { content: base64 }, features: [{ type: "DOCUMENT_TEXT_DETECTION" }] }] }),
+  });
+  if (!res.ok) throw new Error(`Vision request failed (${res.status}).`);
+  const json = (await res.json()) as { responses?: { fullTextAnnotation?: { text?: string }; error?: { message?: string } }[] };
+  const r0 = json.responses?.[0];
+  if (r0?.error?.message) throw new Error(`Vision error: ${r0.error.message}`);
+  return r0?.fullTextAnnotation?.text ?? "";
+}
+
+/**
+ * Hybrid cloud provider (OCR_PROVIDER=vision): PDFs go through the text layer (unpdf) — exact
+ * and free, no need to pay Vision for text receipts — and images go through Google Vision.
+ * If Vision is unconfigured or errors (no key, quota, network), it degrades gracefully to the
+ * on-device engine so nothing is ever lost. The SAME deterministic parser maps the text.
  */
 class GoogleVisionProvider implements OcrProvider {
   readonly name = "vision";
   async extract(fileBuffer: Uint8Array, mimeType: string): Promise<OcrResult> {
-    void mimeType;
-    const apiKey = process.env.OCR_API_KEY;
-    if (!apiKey) throw new Error("OCR provider is not configured.");
-    const base64 = Buffer.from(fileBuffer).toString("base64");
-    const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requests: [{ image: { content: base64 }, features: [{ type: "DOCUMENT_TEXT_DETECTION" }] }] }),
-    });
-    if (!res.ok) throw new Error(`OCR request failed (${res.status}).`);
-    const json = (await res.json()) as { responses?: { fullTextAnnotation?: { text?: string } }[] };
-    const text = json.responses?.[0]?.fullTextAnnotation?.text ?? "";
+    let text = "";
+    try {
+      if (mimeType === "application/pdf") {
+        text = await extractPdfText(fileBuffer);
+      } else if (mimeType.startsWith("image/")) {
+        text = process.env.OCR_API_KEY
+          ? await visionImageOcr(fileBuffer)
+          : await ocrImage(fileBuffer); // no key configured → on-device
+      }
+    } catch (err) {
+      // Vision failed → on-device fallback for images (surfaced in logs, never lost).
+      console.warn("[ocr] Vision failed, falling back to on-device OCR:", err instanceof Error ? err.message : err);
+      try {
+        if (mimeType.startsWith("image/")) text = await ocrImage(fileBuffer);
+      } catch {
+        text = "";
+      }
+    }
+    if (!text.trim()) {
+      const decoded = new TextDecoder("utf-8", { fatal: false }).decode(fileBuffer);
+      if (/[\x20-\x7e]{3,}/.test(decoded)) text = decoded;
+    }
     return { ...parseReceiptText(text, new Date().getUTCFullYear()), raw: { provider: "vision" }, text };
   }
 }
