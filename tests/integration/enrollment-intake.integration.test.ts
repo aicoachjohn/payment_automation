@@ -242,4 +242,23 @@ describe("enrollment intake — the real one-bundle flow", () => {
     expect(lead.enrollment?.payments).toHaveLength(2);
     for (const p of lead.enrollment!.payments) expect(p.auditStatus).toBe(AuditStatus.PENDING_AUDIT);
   });
+
+  it("captures a SINGLE partial proof (₹34,999 of ₹84,999) — no dropped payment, no re-upload", async () => {
+    // Regression: a lone proof is a PART payment (variance vs the full fee). The review form
+    // always pre-fills a variance reason, so this captures during intake instead of failing
+    // and forcing a second upload on the lead page.
+    const preview = await extractEnrollmentBundle(mathiew, {
+      text: enrollmentText("suresh.single@example.com", "9876500005"),
+      proofs: [{ bytes: paytmProof("34,999", "SINGLE20260811") }].map((p) => ({ ...p, originalFilename: "paytm.jpg" })),
+    });
+    expect(preview.payments).toHaveLength(1);
+    const result = await commitEnrollmentBundle(mathiew, toReviewed(preview));
+
+    expect(result.paymentIds).toHaveLength(1); // the partial payment WAS recorded
+    expect(result.warnings).toEqual([]); // not dropped to a warning
+    const lead = await prisma.lead.findUniqueOrThrow({ where: { id: result.leadId }, include: { enrollment: { include: { payments: true } } } });
+    expect(lead.enrollment?.payments).toHaveLength(1);
+    expect(lead.enrollment?.payments[0].receivedAmount.toString()).toBe("34999");
+    expect(lead.enrollment?.payments[0].auditStatus).toBe(AuditStatus.PENDING_AUDIT);
+  });
 });

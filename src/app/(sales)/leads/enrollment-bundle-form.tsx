@@ -108,7 +108,6 @@ export function EnrollmentBundleForm({
     program: preview.course.program ?? "", plan: preview.course.plan ?? "",
     comboMode: preview.course.comboMode ?? "", commencingDate: toDateInput(preview.course.commencingDate),
   });
-  const multi = preview.payments.length > 1;
   const [payments, setPayments] = useState<PaymentDraft[]>(() =>
     preview.payments.map((p, i) => {
       const file = files[i];
@@ -123,7 +122,11 @@ export function EnrollmentBundleForm({
         paymentMethod: p.paymentMethod ?? PaymentMethod.UPI,
         payerName: p.payerName ?? "",
         confirmations: { receivedAmount: false, paymentDate: false, transactionId: false, paymentMethod: false },
-        varianceReason: multi ? "Part payment via enrollment intake" : "",
+        // Always pre-fill a reason: a single proof is often a PART payment (< full fee), which
+        // is a variance and needs a reason (FR-SAL-44). Ignored server-side when there's no
+        // variance. Without this a single partial proof failed capture during intake, forcing
+        // a re-upload on the lead page. Editable on review.
+        varianceReason: "Part / advance payment via enrollment intake",
       };
     }),
   );
