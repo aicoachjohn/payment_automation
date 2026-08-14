@@ -7,6 +7,7 @@ import { AuthorizationError } from "@/server/auth/permissions";
 import { reviewedBundleSchema, applyBundleSchema } from "@/lib/schemas";
 import {
   extractEnrollmentBundle,
+  stagePaymentProofs,
   commitEnrollmentBundle,
   applyEnrollmentBundle,
   EnrollmentIntakeError,
@@ -63,6 +64,26 @@ export async function extractEnrollmentBundleAction(formData: FormData) {
     );
     const preview = await extractEnrollmentBundle(actor, { text, proofs });
     return { ok: true as const, preview };
+  } catch (e) {
+    return { error: safeMessage(e) };
+  }
+}
+
+/**
+ * Multipart: stage extra proof `file`s from the review screen (when the salesperson forgot
+ * one initially) → review-ready payment items to append. No lead/payment created.
+ */
+export async function stageProofsAction(formData: FormData) {
+  try {
+    const actor = await actorOrThrow();
+    const files = formData.getAll("file").filter((f): f is File => f instanceof File);
+    if (files.length === 0) return { error: "Choose at least one screenshot or PDF." as string };
+    if (files.length > MAX_PROOFS) return { error: `Please add at most ${MAX_PROOFS} proofs at a time.` as string };
+    const proofs = await Promise.all(
+      files.map(async (f) => ({ bytes: new Uint8Array(await f.arrayBuffer()), originalFilename: f.name })),
+    );
+    const payments = await stagePaymentProofs(actor, proofs);
+    return { ok: true as const, payments };
   } catch (e) {
     return { error: safeMessage(e) };
   }

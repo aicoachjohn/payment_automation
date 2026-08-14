@@ -132,6 +132,31 @@ async function resolveSystemFee(
   return { systemFee: quotes[0].fee, comboMode: undefined };
 }
 
+/**
+ * Stage payment proofs (validate → scan → store → OCR) into review-ready items — persists
+ * each file + its OCR sidecar but creates NO lead/payment. Used by the initial extract AND by
+ * the review screen's "Add payment proof(s)" control (when the salesperson forgot one).
+ */
+export async function stagePaymentProofs(
+  actor: Actor,
+  proofs: { bytes: Uint8Array; originalFilename: string }[],
+): Promise<StagedPaymentPreview[]> {
+  requirePermission(actor, "payment:create");
+  const out: StagedPaymentPreview[] = [];
+  for (const file of proofs) {
+    const proof = await stageProof(actor, file);
+    out.push({
+      proof,
+      receivedAmount: proof.ocr.fields.receivedAmount,
+      paymentDate: proof.ocr.fields.paymentDate,
+      transactionId: proof.ocr.fields.transactionId,
+      paymentMethod: proof.ocr.fields.paymentMethod,
+      payerName: proof.ocr.fields.payerName,
+    });
+  }
+  return out;
+}
+
 export async function extractEnrollmentBundle(
   actor: Actor,
   input: { text: string; proofs: { bytes: Uint8Array; originalFilename: string }[] },
@@ -148,20 +173,7 @@ export async function extractEnrollmentBundle(
   const { systemFee, comboMode } = await resolveSystemFee(program, plan, fields.courseFee, warnings);
   const feeMismatch = Boolean(fields.courseFee && systemFee && !eq(fields.courseFee, systemFee));
 
-  // Stage each proof (validate → scan → store → OCR). This persists the file + OCR sidecar
-  // but creates NO lead/payment; the sidecar is what capturePayment later confirms against.
-  const payments: StagedPaymentPreview[] = [];
-  for (const file of input.proofs ?? []) {
-    const proof = await stageProof(actor, file);
-    payments.push({
-      proof,
-      receivedAmount: proof.ocr.fields.receivedAmount,
-      paymentDate: proof.ocr.fields.paymentDate,
-      transactionId: proof.ocr.fields.transactionId,
-      paymentMethod: proof.ocr.fields.paymentMethod,
-      payerName: proof.ocr.fields.payerName,
-    });
-  }
+  const payments = await stagePaymentProofs(actor, input.proofs ?? []);
 
   return {
     learner: {

@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { ComboMode, PaymentMethod, Plan, Program } from "@prisma/client";
 import { formatINR } from "@/lib/format";
+import { stageProofsAction } from "@/app/(sales)/leads/enrollment-actions";
 
 // ── Shared view-types (the intake service is server-only; mirror its preview shape) ──
 export type OcrField = "receivedAmount" | "paymentDate" | "transactionId" | "paymentMethod";
@@ -79,6 +80,25 @@ function sumMoney(values: string[]): string {
   return `${Math.floor(totalMinor / 100)}.${String(totalMinor % 100).padStart(2, "0")}`;
 }
 
+/** Build a review card from a staged proof (+ its File for an inline image preview). */
+function toDraft(p: PreviewPayment, file?: File): PaymentDraft {
+  const isPdf = p.proof.fileType.includes("pdf");
+  return {
+    proof: p.proof,
+    previewUrl: file && !isPdf ? URL.createObjectURL(file) : null,
+    isPdf,
+    receivedAmount: p.receivedAmount ?? "",
+    paymentDate: p.paymentDate ?? "",
+    transactionId: p.transactionId ?? "",
+    paymentMethod: p.paymentMethod ?? PaymentMethod.UPI,
+    payerName: p.payerName ?? "",
+    confirmations: { receivedAmount: false, paymentDate: false, transactionId: false, paymentMethod: false },
+    // Always pre-fill a reason: a single proof is often a PART payment (< full fee), a variance
+    // that needs a reason (FR-SAL-44). Ignored server-side when there's no variance. Editable.
+    varianceReason: "Part / advance payment via enrollment intake",
+  };
+}
+
 /**
  * The pre-filled, editable review of an extracted enrollment bundle — learner details,
  * program/fee (with the text-vs-Pricing-Master cross-check) and one payment card per proof
@@ -109,27 +129,25 @@ export function EnrollmentBundleForm({
     comboMode: preview.course.comboMode ?? "", commencingDate: toDateInput(preview.course.commencingDate),
   });
   const [payments, setPayments] = useState<PaymentDraft[]>(() =>
-    preview.payments.map((p, i) => {
-      const file = files[i];
-      const isPdf = p.proof.fileType.includes("pdf");
-      return {
-        proof: p.proof,
-        previewUrl: file && !isPdf ? URL.createObjectURL(file) : null,
-        isPdf,
-        receivedAmount: p.receivedAmount ?? "",
-        paymentDate: p.paymentDate ?? "",
-        transactionId: p.transactionId ?? "",
-        paymentMethod: p.paymentMethod ?? PaymentMethod.UPI,
-        payerName: p.payerName ?? "",
-        confirmations: { receivedAmount: false, paymentDate: false, transactionId: false, paymentMethod: false },
-        // Always pre-fill a reason: a single proof is often a PART payment (< full fee), which
-        // is a variance and needs a reason (FR-SAL-44). Ignored server-side when there's no
-        // variance. Without this a single partial proof failed capture during intake, forcing
-        // a re-upload on the lead page. Editable on review.
-        varianceReason: "Part / advance payment via enrollment intake",
-      };
-    }),
+    preview.payments.map((p, i) => toDraft(p, files[i])),
   );
+  const addFileRef = useRef<HTMLInputElement>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [adding, addProofs] = useTransition();
+
+  function onAddProofs(fileList: FileList | null) {
+    const list = Array.from(fileList ?? []);
+    if (list.length === 0) return;
+    setAddError(null);
+    addProofs(async () => {
+      const fd = new FormData();
+      for (const f of list) fd.append("file", f);
+      const res = await stageProofsAction(fd);
+      if ("error" in res) return setAddError(res.error ?? "Couldn't read that file. Please try again.");
+      setPayments((ps) => [...ps, ...res.payments.map((p, i) => toDraft(p as PreviewPayment, list[i]))]);
+      if (addFileRef.current) addFileRef.current.value = "";
+    });
+  }
 
   function setPay(i: number, patch: Partial<PaymentDraft>) {
     setPayments((ps) => ps.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
@@ -241,12 +259,33 @@ export function EnrollmentBundleForm({
 
       {/* Payments — one card per proof (BR-20 per-field confirmation) */}
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-brand-navy dark:text-slate-100">Payments ({payments.length})</h2>
           <span className="text-xs text-slate-500">
             Received total <strong>{formatINR(receivedTotal)}</strong>
             {preview.course.systemFee && <> of {formatINR(preview.course.systemFee)}</>}
           </span>
+        </div>
+
+        {/* Add a proof the salesperson forgot in the first step — no need to go Back. */}
+        <div className="rounded-lg border border-dashed border-brand-blue/40 bg-brand-blue-50/40 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+          <label className={labelCls}>
+            {payments.length === 0 ? "Add the payment screenshot / PDF" : "Add another payment proof"}
+          </label>
+          <input
+            ref={addFileRef}
+            type="file"
+            accept="image/jpeg,image/png,application/pdf"
+            multiple
+            disabled={adding}
+            onChange={(e) => onAddProofs(e.target.files)}
+            className="mt-1 block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-navy file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-navy-700 disabled:opacity-50 dark:text-slate-300"
+          />
+          {adding && <p className="mt-1 text-xs text-slate-500">Reading proof…</p>}
+          {addError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{addError}</p>}
+          {payments.length === 0 && !adding && (
+            <p className="mt-1 text-xs text-slate-500">At least one payment proof is required to create the enrollment.</p>
+          )}
         </div>
         {payments.map((p, i) => (
           <div key={i} className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-[120px_1fr] dark:border-slate-800">
@@ -259,6 +298,13 @@ export function EnrollmentBundleForm({
               )}
               <span className="max-w-full truncate text-[11px] text-slate-400" title={p.proof.originalFilename}>{p.proof.originalFilename}</span>
               {p.payerName && <span className="text-[11px] text-slate-500">Payer: {p.payerName}</span>}
+              <button
+                type="button"
+                onClick={() => setPayments((ps) => ps.filter((_, idx) => idx !== i))}
+                className="text-[11px] text-red-500 hover:underline"
+              >
+                Remove
+              </button>
             </div>
             <div className="space-y-2">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
