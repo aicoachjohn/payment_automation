@@ -5,6 +5,7 @@ import { dashboardSummary, listLeads } from "@/server/services/leads";
 import { downPaymentCountdowns } from "@/server/services/automation";
 import { myPendingActions } from "@/server/services/follow-ups";
 import { formatINR, formatDate } from "@/lib/format";
+import { ShareIntakeLinkButton } from "./share-intake-link";
 
 const STATUS_LABEL: Record<string, string> = {
   NEW_LEAD: "New", INTERESTED: "Interested", BASIC_DETAILS_PENDING: "Details pending",
@@ -66,6 +67,7 @@ export default async function SalesHome({
           <Link href="/leads/new" className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">
             + New lead
           </Link>
+          <ShareIntakeLinkButton />
         </div>
       </div>
 

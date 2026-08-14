@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { basicDetailsSchema, BASIC_DETAILS_ERROR } from "@/lib/schemas";
+import { Program, Plan } from "@prisma/client";
+import { basicDetailsSchema, strictBasicDetailsSchema, BASIC_DETAILS_ERROR } from "@/lib/schemas";
 
 const valid = {
   fullName: "Aisha Khan",
@@ -54,5 +55,29 @@ describe("basicDetailsSchema — FR-SAL-09 validation & the exact message", () =
   });
   it("still validates an optional field WHEN provided (bad pincode)", () => {
     expect(basicDetailsSchema.safeParse({ ...minimal, pincode: "12345" }).success).toBe(false);
+  });
+});
+
+describe("strictBasicDetailsSchema — the PUBLIC self-intake form (all fields required)", () => {
+  const full = {
+    fullName: "Aisha Khan", dob: "2000-01-15", doorNo: "12A", street: "MG Road", address: "Indiranagar",
+    district: "Bengaluru", state: "Karnataka", pincode: "560038", email: "aisha@example.com",
+    mobile: "9876543210", interestedProgram: Program.COMBO_ALL_THREE, interestedPlan: Plan.PREMIUM,
+  };
+  it("accepts a complete payload with program interest", () => {
+    expect(strictBasicDetailsSchema.safeParse(full).success).toBe(true);
+  });
+  it("rejects when ANY basic field is missing (unlike the relaxed capture schema)", () => {
+    for (const k of ["dob", "doorNo", "street", "address", "district", "state", "pincode"] as const) {
+      expect(strictBasicDetailsSchema.safeParse({ ...full, [k]: "" }).success).toBe(false);
+    }
+  });
+  it("requires the program interest", () => {
+    const { interestedProgram: _p, ...noProgram } = full;
+    void _p;
+    expect(strictBasicDetailsSchema.safeParse(noProgram).success).toBe(false);
+  });
+  it("rejects when the honeypot is filled (bot)", () => {
+    expect(strictBasicDetailsSchema.safeParse({ ...full, company: "Acme Corp" }).success).toBe(false);
   });
 });

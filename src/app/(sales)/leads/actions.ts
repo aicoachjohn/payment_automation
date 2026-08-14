@@ -13,7 +13,9 @@ import {
   leadIdSchema,
   concessionRequestSchema,
   concessionDecisionSchema,
+  intakeInviteSchema,
 } from "@/lib/schemas";
+import { createIntakeInvite } from "@/server/services/lead-intake-link";
 import {
   createLead,
   updateBasicDetails,
@@ -125,4 +127,12 @@ export const emailDraftAction = authActionClient
   .action(async ({ parsedInput, ctx }) => {
     await emailDraft(ctx.actor, parsedInput.leadId);
     return { ok: true as const };
+  });
+
+/** Mint a single-use, 7-day self-intake link the salesperson shares with a prospective lead. */
+export const createIntakeInviteAction = authActionClient
+  .schema(intakeInviteSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const invite = await createIntakeInvite(ctx.actor, parsedInput.note);
+    return { ok: true as const, url: invite.url, expiresAt: invite.expiresAt.toISOString() };
   });

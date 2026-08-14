@@ -44,4 +44,8 @@ export const RATE_LIMITS = {
   login: { limit: 20, windowMs: 60_000 },
   forgotPassword: { limit: 10, windowMs: 60_000 },
   otp: { limit: 20, windowMs: 60_000 },
+  intake: { limit: 15, windowMs: 60_000 },
 } as const;
+
+/** Public self-intake link (a salesperson shares it; the lead self-fills). */
+export const INTAKE_LINK = { TTL_DAYS: 7 } as const;

@@ -139,9 +139,10 @@ model User {
   lastLogin          DateTime?  @map("last_login")
   createdBy          String?    @map("created_by")
 
-  leads       Lead[]               @relation("SalespersonLeads")
-  sessions    Session[]
-  resetTokens PasswordResetToken[]
+  leads         Lead[]               @relation("SalespersonLeads")
+  sessions      Session[]
+  resetTokens   PasswordResetToken[]
+  intakeInvites LeadIntakeInvite[]   @relation("SalespersonIntakeInvites")
 
   @@index([role])
   @@index([status])
@@ -188,28 +189,51 @@ model PasswordResetToken {
   @@map("password_reset_token")
 }
 
-model Lead {
-  id            String     @id @default(cuid()) @map("lead_id")
-  fullName      String     @map("full_name")
-  dob           DateTime?
-  doorNo        String?    @map("door_no")
-  street        String?
-  address       String?
-  district      String?
-  state         String?
-  pincode       String?
-  email         String?
-  mobile        String?
-  leadSource    String?    @map("lead_source")
-  status        LeadStatus @default(NEW_LEAD)
-  salespersonId String     @map("salesperson_id")
-  remarks       String?
-  voided        Boolean    @default(false)
-  voidedReason  String?    @map("voided_reason")
-  createdAt     DateTime   @default(now()) @map("created_at")
-  updatedAt     DateTime   @updatedAt @map("updated_at")
+/// A single-use, expiring token a salesperson shares so a prospective learner can self-fill
+/// their basic details on a PUBLIC form. Mirrors PasswordResetToken; points at the owning
+/// salesperson (the lead does not exist until the form is submitted). createdLeadId is set on
+/// submit. Tokens are stored hashed and never deleted (single-use via usedAt).
+model LeadIntakeInvite {
+  id            String    @id @default(cuid()) @map("invite_id")
+  salespersonId String    @map("salesperson_id")
+  tokenHash     String    @unique @map("token_hash")
+  note          String?
+  expiresAt     DateTime  @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  createdLeadId String?   @map("created_lead_id")
+  ipAddress     String?   @map("ip_address")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
-  salesperson User        @relation("SalespersonLeads", fields: [salespersonId], references: [id], onDelete: Restrict)
+  salesperson User @relation("SalespersonIntakeInvites", fields: [salespersonId], references: [id], onDelete: Restrict)
+
+  @@index([salespersonId])
+  @@map("lead_intake_invite")
+}
+
+model Lead {
+  id                String     @id @default(cuid()) @map("lead_id")
+  fullName          String     @map("full_name")
+  dob               DateTime?
+  doorNo            String?    @map("door_no")
+  street            String?
+  address           String?
+  district          String?
+  state             String?
+  pincode           String?
+  email             String?
+  mobile            String?
+  leadSource        String?    @map("lead_source")
+  interestedProgram Program?   @map("interested_program")
+  interestedPlan    Plan?      @map("interested_plan")
+  status            LeadStatus @default(NEW_LEAD)
+  salespersonId     String     @map("salesperson_id")
+  remarks           String?
+  voided            Boolean    @default(false)
+  voidedReason      String?    @map("voided_reason")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  salesperson User           @relation("SalespersonLeads", fields: [salespersonId], references: [id], onDelete: Restrict)
   enrollment  Enrollment?
   followUps   FollowUpTask[]
 
@@ -221,28 +245,28 @@ model Lead {
 }
 
 model Enrollment {
-  id                String            @id @default(cuid()) @map("enrollment_id")
-  leadId            String            @unique @map("lead_id")
+  id                String           @id @default(cuid()) @map("enrollment_id")
+  leadId            String           @unique @map("lead_id")
   program           Program
   plan              Plan
-  comboMode         ComboMode?        @map("combo_mode")
-  commencingDate    DateTime?         @map("commencing_date")
+  comboMode         ComboMode?       @map("combo_mode")
+  commencingDate    DateTime?        @map("commencing_date")
   batch             String?
-  courseStartedFlag Boolean           @default(false) @map("course_started_flag")
-  standardFee       Decimal?          @map("standard_fee") @db.Decimal(12, 2)
-  concessionAmount  Decimal           @default(0) @map("concession_amount") @db.Decimal(12, 2)
-  concessionReason  String?           @map("concession_reason")
-  concessionStatus  ConcessionStatus  @default(NONE) @map("concession_status")
-  finalApprovedFee  Decimal?          @map("final_approved_fee") @db.Decimal(12, 2)
-  gstPercent        Decimal?          @map("gst_percent") @db.Decimal(5, 2)
-  baseFee           Decimal?          @map("base_fee") @db.Decimal(12, 2)
-  gstAmount         Decimal?          @map("gst_amount") @db.Decimal(12, 2)
-  feeLockedAt       DateTime?         @map("fee_locked_at")
-  pricingId         String?           @map("pricing_id")
-  enrollmentStatus  String            @default("DRAFT") @map("enrollment_status")
-  paymentSchedule   Json?             @map("payment_schedule")
-  createdAt         DateTime          @default(now()) @map("created_at")
-  updatedAt         DateTime          @updatedAt @map("updated_at")
+  courseStartedFlag Boolean          @default(false) @map("course_started_flag")
+  standardFee       Decimal?         @map("standard_fee") @db.Decimal(12, 2)
+  concessionAmount  Decimal          @default(0) @map("concession_amount") @db.Decimal(12, 2)
+  concessionReason  String?          @map("concession_reason")
+  concessionStatus  ConcessionStatus @default(NONE) @map("concession_status")
+  finalApprovedFee  Decimal?         @map("final_approved_fee") @db.Decimal(12, 2)
+  gstPercent        Decimal?         @map("gst_percent") @db.Decimal(5, 2)
+  baseFee           Decimal?         @map("base_fee") @db.Decimal(12, 2)
+  gstAmount         Decimal?         @map("gst_amount") @db.Decimal(12, 2)
+  feeLockedAt       DateTime?        @map("fee_locked_at")
+  pricingId         String?          @map("pricing_id")
+  enrollmentStatus  String           @default("DRAFT") @map("enrollment_status")
+  paymentSchedule   Json?            @map("payment_schedule")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
 
   lead      Lead                 @relation(fields: [leadId], references: [id], onDelete: Restrict)
   pricing   PricingMaster?       @relation(fields: [pricingId], references: [id], onDelete: Restrict)
@@ -256,35 +280,35 @@ model Enrollment {
 }
 
 model Payment {
-  id              String        @id @default(cuid()) @map("payment_id")
-  enrollmentId    String        @map("enrollment_id")
-  paymentNumber   Int           @map("payment_number")
-  paymentType     PaymentType   @map("payment_type")
-  expectedAmount  Decimal       @map("expected_amount") @db.Decimal(12, 2)
-  receivedAmount  Decimal       @map("received_amount") @db.Decimal(12, 2)
-  paymentDate     DateTime      @map("payment_date")
-  paymentMethod   PaymentMethod @map("payment_method")
-  transactionId   String        @unique @map("transaction_id")
-  paymentStatus   String        @default("RECORDED") @map("payment_status")
-  auditStatus     AuditStatus   @default(PENDING_AUDIT) @map("audit_status")
-  submittedBy     String        @map("submitted_by")
-  submittedAt     DateTime      @default(now()) @map("submitted_at")
-  auditedBy       String?       @map("audited_by")
-  auditedAt       DateTime?     @map("audited_at")
-  auditReasonCode String?       @map("audit_reason_code")
-  auditComment    String?       @map("audit_comment")
-  varianceReason  String?       @map("variance_reason")
+  id               String        @id @default(cuid()) @map("payment_id")
+  enrollmentId     String        @map("enrollment_id")
+  paymentNumber    Int           @map("payment_number")
+  paymentType      PaymentType   @map("payment_type")
+  expectedAmount   Decimal       @map("expected_amount") @db.Decimal(12, 2)
+  receivedAmount   Decimal       @map("received_amount") @db.Decimal(12, 2)
+  paymentDate      DateTime      @map("payment_date")
+  paymentMethod    PaymentMethod @map("payment_method")
+  transactionId    String        @unique @map("transaction_id")
+  paymentStatus    String        @default("RECORDED") @map("payment_status")
+  auditStatus      AuditStatus   @default(PENDING_AUDIT) @map("audit_status")
+  submittedBy      String        @map("submitted_by")
+  submittedAt      DateTime      @default(now()) @map("submitted_at")
+  auditedBy        String?       @map("audited_by")
+  auditedAt        DateTime?     @map("audited_at")
+  auditReasonCode  String?       @map("audit_reason_code")
+  auditComment     String?       @map("audit_comment")
+  varianceReason   String?       @map("variance_reason")
   // FR-SA-13: set when the Super Admin audited this payment via the delegated-audit path.
   // Surfaces "Audited by Super Admin (delegated)" on every dashboard and in history.
-  delegatedAudit  Boolean       @default(false) @map("delegated_audit")
-  manualEntryNoOcr Boolean      @default(false) @map("manual_entry_no_ocr")
-  fieldSources    Json?         @map("field_sources")
-  voided          Boolean       @default(false)
-  voidedReason    String?       @map("voided_reason")
-  locked          Boolean       @default(false)
+  delegatedAudit   Boolean       @default(false) @map("delegated_audit")
+  manualEntryNoOcr Boolean       @default(false) @map("manual_entry_no_ocr")
+  fieldSources     Json?         @map("field_sources")
+  voided           Boolean       @default(false)
+  voidedReason     String?       @map("voided_reason")
+  locked           Boolean       @default(false)
 
-  enrollment Enrollment     @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
-  proofs     PaymentProof[]
+  enrollment     Enrollment     @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  proofs         PaymentProof[]
   financeQueries FinanceQuery[]
 
   @@unique([enrollmentId, paymentNumber])
@@ -385,16 +409,16 @@ model AuditTrail {
 
 /// Immutable, append-only (same protections as AuditTrail). Read-only to Finance.
 model SuperAdminActivity {
-  id           String   @id @default(cuid()) @map("activity_id")
-  superAdminId String   @map("super_admin_id")
-  overrideType String   @map("override_type")
-  entityType   String   @map("entity_type")
-  entityId     String   @map("entity_id")
-  reasonText   String   @map("reason_text") @db.Text
-  previousState Json?   @map("previous_state")
-  newState     Json?    @map("new_state")
-  performedAt  DateTime @default(now()) @map("performed_at")
-  notifiedTo   String[] @map("notified_to")
+  id            String   @id @default(cuid()) @map("activity_id")
+  superAdminId  String   @map("super_admin_id")
+  overrideType  String   @map("override_type")
+  entityType    String   @map("entity_type")
+  entityId      String   @map("entity_id")
+  reasonText    String   @map("reason_text") @db.Text
+  previousState Json?    @map("previous_state")
+  newState      Json?    @map("new_state")
+  performedAt   DateTime @default(now()) @map("performed_at")
+  notifiedTo    String[] @map("notified_to")
 
   @@index([superAdminId])
   @@index([performedAt])

@@ -1,0 +1,123 @@
+/**
+ * Public "self-intake link" (FR-SAL — capture assist). A salesperson mints a single-use,
+ * 7-day, unguessable link and shares it; the prospective learner opens it with NO login and
+ * fills their own basic details on a PUBLIC form. On submit a NEW lead is created, owned by
+ * the inviting salesperson, with a complete record. Mirrors the password-reset token flow
+ * (src/server/services/auth.ts): only the SHA-256 hash is stored; the raw token lives only in
+ * the shared link; single-use via `usedAt`; time-limited via `expiresAt`. Touches NO money /
+ * payment / audit-decision path — the salesperson still captures payment separately.
+ */
+import "server-only";
+import { createHash, randomInt } from "node:crypto";
+import { Program, Plan, UserStatus, LeadStatus } from "@prisma/client";
+import { db } from "@/server/db";
+import { writeAudit } from "@/server/audit";
+import { requirePermission, type Actor } from "@/server/auth/permissions";
+import { checkDuplicate, advanceLeadStatus } from "@/server/services/leads";
+import { INTAKE_LINK } from "@/lib/constants";
+
+function sha256(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
+}
+
+function appOrigin(): string {
+  return process.env.APP_URL ?? "http://localhost:3000";
+}
+
+export interface CreatedInvite {
+  url: string;
+  expiresAt: Date;
+}
+
+/** A salesperson mints a single-use, 7-day link the lead will self-fill. */
+export async function createIntakeInvite(actor: Actor, note?: string): Promise<CreatedInvite> {
+  requirePermission(actor, "lead:create");
+  const raw = createHash("sha256").update(`${actor.userId}:${Date.now()}:${randomInt(1e9)}`).digest("hex");
+  const expiresAt = new Date(Date.now() + INTAKE_LINK.TTL_DAYS * 24 * 60 * 60 * 1000);
+  await db.leadIntakeInvite.create({
+    data: { salespersonId: actor.userId, tokenHash: sha256(raw), note: note?.trim() || null, expiresAt },
+  });
+  return { url: `${appOrigin()}/intake/${raw}`, expiresAt };
+}
+
+/** Public: is this token still usable? Returns only a boolean — no record data ever leaks. */
+export async function isIntakeTokenValid(rawToken: string): Promise<boolean> {
+  const invite = await db.leadIntakeInvite.findUnique({ where: { tokenHash: sha256(rawToken) } });
+  return Boolean(invite && !invite.usedAt && invite.expiresAt.getTime() > Date.now());
+}
+
+export interface IntakeData {
+  fullName: string; dob: string; doorNo: string; street: string; address: string;
+  district: string; state: string; pincode: string; email: string; mobile: string;
+  interestedProgram: Program; interestedPlan: Plan;
+}
+export type IntakeResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Public: the lead submits their details against a valid token → a NEW lead owned by the
+ * inviting salesperson, with a complete record. Single-use: consumes the token in the same
+ * transaction. The audit write is attributed to the owning salesperson (there is no lead-user).
+ */
+export async function submitIntake(rawToken: string, data: IntakeData, ip?: string | null): Promise<IntakeResult> {
+  const invite = await db.leadIntakeInvite.findUnique({ where: { tokenHash: sha256(rawToken) } });
+  if (!invite || invite.usedAt || invite.expiresAt.getTime() < Date.now()) {
+    return { ok: false, error: "This link is invalid or has already been used." };
+  }
+  const sp = await db.user.findUnique({ where: { id: invite.salespersonId } });
+  if (!sp || sp.status !== UserStatus.ACTIVE) {
+    return { ok: false, error: "This link is no longer active. Please contact your ProITbridge advisor." };
+  }
+  const actor: Actor = { userId: sp.id, role: sp.role };
+
+  // Duplicate-active-lead guard (FR-SAL-10), before creating.
+  for (const field of ["mobile", "email"] as const) {
+    const dup = await checkDuplicate(field, data[field]);
+    if (dup) return { ok: false, error: `A record with this ${field} already exists. Please contact your advisor.` };
+  }
+
+  await db.$transaction(async (tx) => {
+    const lead = await tx.lead.create({
+      data: {
+        fullName: data.fullName.trim(),
+        dob: new Date(data.dob),
+        doorNo: data.doorNo.trim(),
+        street: data.street.trim(),
+        address: data.address.trim(),
+        district: data.district.trim(),
+        state: data.state.trim(),
+        pincode: data.pincode.trim(),
+        email: data.email.trim().toLowerCase(),
+        mobile: data.mobile.trim(),
+        interestedProgram: data.interestedProgram,
+        interestedPlan: data.interestedPlan,
+        leadSource: "Self-intake link",
+        salespersonId: sp.id,
+        status: LeadStatus.NEW_LEAD,
+      },
+    });
+    await writeAudit(tx, {
+      entityType: "Lead",
+      entityId: lead.id,
+      action: "CREATE",
+      changes: [{ field: "status", oldValue: null, newValue: LeadStatus.NEW_LEAD }],
+      actor,
+      ip,
+    });
+    await writeAudit(tx, {
+      entityType: "Lead",
+      entityId: lead.id,
+      action: "SELF_INTAKE_SUBMITTED",
+      changes: [{ field: "basicDetails", oldValue: null, newValue: "self-filled by lead via intake link" }],
+      actor,
+      ip,
+    });
+    await tx.leadIntakeInvite.update({
+      where: { id: invite.id },
+      data: { usedAt: new Date(), createdLeadId: lead.id, ipAddress: ip ?? null },
+    });
+    await advanceLeadStatus(tx, lead.id, actor);
+  });
+
+  await db.securityEvent.create({ data: { eventType: "LEAD_INTAKE_SUBMITTED", userId: sp.id, ipAddress: ip ?? null } });
+  return { ok: true };
+}

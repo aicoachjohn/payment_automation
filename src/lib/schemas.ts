@@ -155,6 +155,43 @@ export const basicDetailsSchema = z.object({
   remarks: z.string().trim().max(1000).optional(),
 });
 
+/**
+ * STRICT variant for the PUBLIC self-intake form the lead fills — every field is mandatory
+ * (mirrors isBasicComplete's full-record rule), plus the lead's program interest and a hidden
+ * honeypot (`company` must stay empty; a value ⇒ bot). Salesperson confirms the final course.
+ */
+export const strictBasicDetailsSchema = z.object({
+  fullName: z.string(err).trim().min(2, err),
+  dob: z
+    .string()
+    .trim()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()) && new Date(s).getTime() < Date.now(), err),
+  doorNo: z.string(err).trim().min(1, err),
+  street: z.string(err).trim().min(1, err),
+  address: z.string(err).trim().min(1, err),
+  district: z.string(err).trim().min(1, err),
+  state: z.string(err).trim().min(1, err),
+  pincode: z.string(err).trim().regex(/^\d{6}$/, err),
+  email: z.string(err).trim().toLowerCase().email(err),
+  mobile: z
+    .string(err)
+    .trim()
+    .regex(/^(\+?\d{1,3}[- ]?)?\d{10}$/, err),
+  interestedProgram: z.nativeEnum(Program, err),
+  interestedPlan: z.nativeEnum(Plan, err),
+  company: z.string().max(0).optional(), // honeypot — must stay empty
+});
+
+/** The public intake submission = the strict details + the invite token. */
+export const submitIntakeSchema = strictBasicDetailsSchema.extend({
+  token: z.string().min(10),
+});
+
+/** A salesperson minting a self-intake link — an optional label to track who it's for. */
+export const intakeInviteSchema = z.object({
+  note: z.string().trim().max(120).optional(),
+});
+
 /** New-lead create: only name + salesperson are required up front (FR-SAL-07). */
 export const leadAutofillTextSchema = z.object({
   text: z.string().trim().min(2, "Paste the enquiry text to auto-fill.").max(5000),
