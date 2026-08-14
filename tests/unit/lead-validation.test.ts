@@ -41,4 +41,18 @@ describe("basicDetailsSchema — FR-SAL-09 validation & the exact message", () =
   it("mobile accepts an optional country code", () => {
     expect(basicDetailsSchema.safeParse({ ...valid, mobile: "+91 9876543210" }).success).toBe(true);
   });
+
+  const minimal = { fullName: "Aisha Khan", email: "aisha@example.com", mobile: "9876543210" };
+  it("accepts just name + email + mobile (address/DOB omitted — only these 3 are mandatory)", () => {
+    expect(basicDetailsSchema.safeParse(minimal).success).toBe(true);
+  });
+  it("accepts blank optional fields", () => {
+    expect(basicDetailsSchema.safeParse({ ...minimal, dob: "", doorNo: "", street: "", address: "", district: "", state: "", pincode: "" }).success).toBe(true);
+  });
+  it("still rejects a missing mandatory field (email)", () => {
+    expect(basicDetailsSchema.safeParse({ fullName: "Aisha", mobile: "9876543210" }).success).toBe(false);
+  });
+  it("still validates an optional field WHEN provided (bad pincode)", () => {
+    expect(basicDetailsSchema.safeParse({ ...minimal, pincode: "12345" }).success).toBe(false);
+  });
 });

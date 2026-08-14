@@ -39,6 +39,21 @@ export class LeadError extends Error {
 
 type LeadRecord = Prisma.LeadGetPayload<{ include: { enrollment: { include: { payments: true } } } }>;
 
+/**
+ * The MINIMAL set required to capture/advance a lead (business decision): name + email +
+ * mobile. The rest of the record can be filled later. `isBasicComplete` below is the STRICT
+ * full-record check used only by the Operations handover.
+ */
+export function isBasicMinimal(lead: { fullName: string | null; email: string | null; mobile: string | null }): boolean {
+  return Boolean(
+    lead.fullName &&
+      lead.email &&
+      /.+@.+\..+/.test(lead.email) &&
+      lead.mobile &&
+      /^(\+?\d{1,3}[- ]?)?\d{10}$/.test(lead.mobile),
+  );
+}
+
 export function isBasicComplete(lead: {
   fullName: string | null;
   dob: Date | null;
@@ -157,8 +172,9 @@ export async function updateBasicDetails(
   actor: Actor,
   leadId: string,
   data: {
-    fullName: string; dob: string; doorNo: string; street: string; address: string;
-    district: string; state: string; pincode: string; email: string; mobile: string;
+    fullName: string; email: string; mobile: string;
+    dob?: string; doorNo?: string; street?: string; address?: string;
+    district?: string; state?: string; pincode?: string;
     leadSource?: string; remarks?: string;
   },
 ): Promise<void> {
@@ -179,16 +195,18 @@ export async function updateBasicDetails(
     await tx.lead.update({
       where: { id: leadId },
       data: {
+        // Required.
         fullName: data.fullName.trim(),
-        dob: new Date(data.dob),
-        doorNo: data.doorNo.trim(),
-        street: data.street.trim(),
-        address: data.address.trim(),
-        district: data.district.trim(),
-        state: data.state.trim(),
-        pincode: data.pincode.trim(),
         email: data.email.trim().toLowerCase(),
         mobile: data.mobile.trim(),
+        // Optional — store null when not yet filled (keeps the handover's strict check honest).
+        dob: data.dob?.trim() ? new Date(data.dob) : null,
+        doorNo: data.doorNo?.trim() || null,
+        street: data.street?.trim() || null,
+        address: data.address?.trim() || null,
+        district: data.district?.trim() || null,
+        state: data.state?.trim() || null,
+        pincode: data.pincode?.trim() || null,
         leadSource: data.leadSource?.trim() ?? lead.leadSource,
         remarks: data.remarks?.trim() ?? lead.remarks,
       },
@@ -428,7 +446,7 @@ export async function advanceLeadStatus(tx: DbTx, leadId: string, actor: Actor):
 
   const computed = computeLeadStatus({
     interested: lead.status !== LeadStatus.NEW_LEAD,
-    basicDetailsComplete: isBasicComplete(lead),
+    basicDetailsComplete: isBasicMinimal(lead), // capture needs only name/mobile/email (handover stays strict)
     draftGenerated: Boolean(draft),
     finalApprovedFee: enrollment?.finalApprovedFee?.toString() ?? null,
     payments: (enrollment?.payments ?? []).map((p) => ({

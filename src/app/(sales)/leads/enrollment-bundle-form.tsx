@@ -164,9 +164,14 @@ export function EnrollmentBundleForm({
       need.every((k) => f[k] == null || p.confirmations[k])
     );
   });
-  const learnerReady =
-    learner.fullName && learner.dob && learner.doorNo && learner.street && learner.address &&
-    learner.district && learner.state && /^\d{6}$/.test(learner.pincode) && learner.email && learner.mobile;
+  // Only Name + Email + Mobile are mandatory; other fields optional (validated if given).
+  const learnerReady = Boolean(
+    learner.fullName.trim() &&
+      /.+@.+\..+/.test(learner.email) &&
+      /^(\+?\d{1,3}[- ]?)?\d{10}$/.test(learner.mobile) &&
+      (!learner.pincode.trim() || /^\d{6}$/.test(learner.pincode)) &&
+      (!learner.dob || new Date(learner.dob).getTime() < Date.now()),
+  );
   const courseReady = course.program && course.plan && (course.program !== Program.COMBO_ALL_THREE || course.comboMode);
   const canConfirm = Boolean(learnerReady && courseReady && payments.length > 0 && paymentsReady);
   const receivedTotal = useMemo(() => sumMoney(payments.map((p) => p.receivedAmount)), [payments]);
@@ -203,7 +208,7 @@ export function EnrollmentBundleForm({
       <section className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
         <h2 className="text-sm font-semibold text-brand-navy dark:text-slate-100">Learner details</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field l="Full name"><input className={input} value={learner.fullName} onChange={(e) => setLearner({ ...learner, fullName: e.target.value })} /></Field>
+          <Field l="Full name" req><input className={input} value={learner.fullName} onChange={(e) => setLearner({ ...learner, fullName: e.target.value })} /></Field>
           <Field l="Date of birth"><input type="date" className={input} value={learner.dob} onChange={(e) => setLearner({ ...learner, dob: e.target.value })} /></Field>
           <Field l="Door / plot no."><input className={input} value={learner.doorNo} onChange={(e) => setLearner({ ...learner, doorNo: e.target.value })} /></Field>
           <Field l="Street / area"><input className={input} value={learner.street} onChange={(e) => setLearner({ ...learner, street: e.target.value })} /></Field>
@@ -211,8 +216,8 @@ export function EnrollmentBundleForm({
           <Field l="District"><input className={input} value={learner.district} onChange={(e) => setLearner({ ...learner, district: e.target.value })} /></Field>
           <Field l="State"><input className={input} placeholder="Not in message — please add" value={learner.state} onChange={(e) => setLearner({ ...learner, state: e.target.value })} /></Field>
           <Field l="Pincode"><input className={input} value={learner.pincode} onChange={(e) => setLearner({ ...learner, pincode: e.target.value })} /></Field>
-          <Field l="Email"><input className={input} value={learner.email} onChange={(e) => setLearner({ ...learner, email: e.target.value })} /></Field>
-          <Field l="Mobile"><input className={input} value={learner.mobile} onChange={(e) => setLearner({ ...learner, mobile: e.target.value })} /></Field>
+          <Field l="Email" req><input className={input} value={learner.email} onChange={(e) => setLearner({ ...learner, email: e.target.value })} /></Field>
+          <Field l="Mobile" req><input className={input} value={learner.mobile} onChange={(e) => setLearner({ ...learner, mobile: e.target.value })} /></Field>
         </div>
       </section>
 
@@ -221,13 +226,13 @@ export function EnrollmentBundleForm({
         <h2 className="text-sm font-semibold text-brand-navy dark:text-slate-100">Program & fee</h2>
         {preview.course.programName && <p className="text-xs text-slate-500">From the message: “{preview.course.programName}”</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field l="Program">
+          <Field l="Program" req>
             <select className={input} value={course.program} onChange={(e) => setCourse({ ...course, program: e.target.value as Program })}>
               <option value="">Select…</option>
               {PROGRAMS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </Field>
-          <Field l="Plan">
+          <Field l="Plan" req>
             <select className={input} value={course.plan} onChange={(e) => setCourse({ ...course, plan: e.target.value as Plan })}>
               <option value="">Select…</option>
               <option value={Plan.ADVANCED}>Advanced</option>
@@ -235,7 +240,7 @@ export function EnrollmentBundleForm({
             </select>
           </Field>
           {course.program === Program.COMBO_ALL_THREE && (
-            <Field l="Combo mode">
+            <Field l="Combo mode" req>
               <select className={input} value={course.comboMode} onChange={(e) => setCourse({ ...course, comboMode: e.target.value as ComboMode })}>
                 <option value="">Select…</option>
                 <option value={ComboMode.SINGLE_SHOT}>Single Shot</option>
@@ -308,16 +313,16 @@ export function EnrollmentBundleForm({
             </div>
             <div className="space-y-2">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <ConfirmField l="Amount received" ocr={p.proof.ocr.fields.receivedAmount != null} checked={p.confirmations.receivedAmount} onCheck={(v) => setConfirm(i, "receivedAmount", v)}>
+                <ConfirmField l="Amount received" req ocr={p.proof.ocr.fields.receivedAmount != null} checked={p.confirmations.receivedAmount} onCheck={(v) => setConfirm(i, "receivedAmount", v)}>
                   <input className={input} value={p.receivedAmount} onChange={(e) => setPay(i, { receivedAmount: e.target.value })} />
                 </ConfirmField>
-                <ConfirmField l="Transaction ID" ocr={p.proof.ocr.fields.transactionId != null} checked={p.confirmations.transactionId} onCheck={(v) => setConfirm(i, "transactionId", v)}>
+                <ConfirmField l="Transaction ID" req ocr={p.proof.ocr.fields.transactionId != null} checked={p.confirmations.transactionId} onCheck={(v) => setConfirm(i, "transactionId", v)}>
                   <input className={input} value={p.transactionId} onChange={(e) => setPay(i, { transactionId: e.target.value })} />
                 </ConfirmField>
-                <ConfirmField l="Payment date" ocr={p.proof.ocr.fields.paymentDate != null} checked={p.confirmations.paymentDate} onCheck={(v) => setConfirm(i, "paymentDate", v)}>
+                <ConfirmField l="Payment date" req ocr={p.proof.ocr.fields.paymentDate != null} checked={p.confirmations.paymentDate} onCheck={(v) => setConfirm(i, "paymentDate", v)}>
                   <input type="date" className={input} value={toDateInput(p.paymentDate)} onChange={(e) => setPay(i, { paymentDate: fromDateInput(e.target.value) })} />
                 </ConfirmField>
-                <ConfirmField l="Method" ocr={p.proof.ocr.fields.paymentMethod != null} checked={p.confirmations.paymentMethod} onCheck={(v) => setConfirm(i, "paymentMethod", v)}>
+                <ConfirmField l="Method" req ocr={p.proof.ocr.fields.paymentMethod != null} checked={p.confirmations.paymentMethod} onCheck={(v) => setConfirm(i, "paymentMethod", v)}>
                   <select className={input} value={p.paymentMethod} onChange={(e) => setPay(i, { paymentMethod: e.target.value as PaymentMethod })}>
                     {Object.values(PaymentMethod).map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
@@ -346,22 +351,26 @@ export function EnrollmentBundleForm({
   );
 }
 
-function Field({ l, wide, children }: { l: string; wide?: boolean; children: React.ReactNode }) {
+function Req() {
+  return <span className="text-red-500" title="Required"> *</span>;
+}
+
+function Field({ l, req, wide, children }: { l: string; req?: boolean; wide?: boolean; children: React.ReactNode }) {
   return (
     <div className={`space-y-1 ${wide ? "sm:col-span-2" : ""}`}>
-      <label className={labelCls}>{l}</label>
+      <label className={labelCls}>{l}{req && <Req />}</label>
       {children}
     </div>
   );
 }
 
 function ConfirmField({
-  l, ocr, checked, onCheck, children,
-}: { l: string; ocr: boolean; checked: boolean; onCheck: (v: boolean) => void; children: React.ReactNode }) {
+  l, req, ocr, checked, onCheck, children,
+}: { l: string; req?: boolean; ocr: boolean; checked: boolean; onCheck: (v: boolean) => void; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <label className={labelCls}>{l}</label>
+        <label className={labelCls}>{l}{req && <Req />}</label>
         {ocr && (
           <label className="flex items-center gap-1 text-[11px] text-slate-500">
             <input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} /> confirm

@@ -148,7 +148,7 @@ function BasicDetails({ lead, pending, run }: { lead: LeadDetail; pending: boole
       <p className="text-xs text-slate-500">Entered once here; reused everywhere (BR-02).</p>
       {dup && <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">{dup}</p>}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Field label="Full name"><input className={input} value={f.fullName} onChange={set("fullName")} /></Field>
+        <Field label="Full name" req><input className={input} value={f.fullName} onChange={set("fullName")} /></Field>
         <Field label="Date of birth"><input type="date" className={input} value={f.dob} onChange={set("dob")} /></Field>
         <Field label="Door no."><input className={input} value={f.doorNo} onChange={set("doorNo")} /></Field>
         <Field label="Street"><input className={input} value={f.street} onChange={set("street")} /></Field>
@@ -156,8 +156,8 @@ function BasicDetails({ lead, pending, run }: { lead: LeadDetail; pending: boole
         <Field label="District"><input className={input} value={f.district} onChange={set("district")} /></Field>
         <Field label="State"><input className={input} value={f.state} onChange={set("state")} /></Field>
         <Field label="Pincode"><input className={input} value={f.pincode} onChange={set("pincode")} /></Field>
-        <Field label="Email"><input className={input} value={f.email} onChange={set("email")} onBlur={() => checkDup("email", f.email)} /></Field>
-        <Field label="Mobile"><input className={input} value={f.mobile} onChange={set("mobile")} onBlur={() => checkDup("mobile", f.mobile)} /></Field>
+        <Field label="Email" req><input className={input} value={f.email} onChange={set("email")} onBlur={() => checkDup("email", f.email)} /></Field>
+        <Field label="Mobile" req><input className={input} value={f.mobile} onChange={set("mobile")} onBlur={() => checkDup("mobile", f.mobile)} /></Field>
         <Field label="Lead source"><input className={input} value={f.leadSource} onChange={set("leadSource")} /></Field>
         <Field label="Remarks"><input className={input} value={f.remarks} onChange={set("remarks")} /></Field>
       </div>
@@ -192,8 +192,8 @@ function CourseSelection({ lead, pending, run }: { lead: LeadDetail; pending: bo
     >
       <h2 className="text-lg font-semibold">Course &amp; plan</h2>
       <div className="flex flex-wrap items-end gap-3">
-        <Field label="Program"><select className={input} value={program} onChange={(ev) => setProgram(ev.target.value as Program)}>{Object.values(Program).map((p) => <option key={p} value={p}>{p}</option>)}</select></Field>
-        <Field label="Plan"><select className={input} value={plan} onChange={(ev) => setPlan(ev.target.value as Plan)}>{Object.values(Plan).map((p) => <option key={p} value={p}>{p}</option>)}</select></Field>
+        <Field label="Program" req><select className={input} value={program} onChange={(ev) => setProgram(ev.target.value as Program)}>{Object.values(Program).map((p) => <option key={p} value={p}>{p}</option>)}</select></Field>
+        <Field label="Plan" req><select className={input} value={plan} onChange={(ev) => setPlan(ev.target.value as Plan)}>{Object.values(Plan).map((p) => <option key={p} value={p}>{p}</option>)}</select></Field>
         {isCombo && <Field label="Combo mode"><select className={input} value={comboMode} onChange={(ev) => setComboMode(ev.target.value as ComboMode)}>{Object.values(ComboMode).map((m) => <option key={m} value={m}>{m}</option>)}</select></Field>}
         <Field label="Commencing date"><input type="date" className={input} value={commencingDate} onChange={(ev) => setCommencingDate(ev.target.value)} /></Field>
         <Field label="Batch"><input className={input} value={batch} onChange={(ev) => setBatch(ev.target.value)} /></Field>
@@ -355,10 +355,10 @@ function AutofillPanel({ leadId }: { leadId: string }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, req, children }: { label: string; req?: boolean; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1 text-xs text-slate-500">
-      {label}
+      <span>{label}{req && <span className="text-red-500" title="Required"> *</span>}</span>
       {children}
     </label>
   );

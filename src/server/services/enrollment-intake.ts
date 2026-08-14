@@ -218,16 +218,16 @@ export interface ReviewedPaymentInput {
 
 export interface ReviewedBundle {
   learner: {
-    fullName: string;
-    dob: string;
-    doorNo: string;
-    street: string;
-    address: string;
-    district: string;
-    state: string;
-    pincode: string;
-    email: string;
-    mobile: string;
+    fullName: string; // required
+    email: string; // required
+    mobile: string; // required
+    dob?: string;
+    doorNo?: string;
+    street?: string;
+    address?: string;
+    district?: string;
+    state?: string;
+    pincode?: string;
     leadSource?: string;
     remarks?: string;
   };

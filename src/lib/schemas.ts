@@ -122,28 +122,35 @@ export const BASIC_DETAILS_ERROR =
 
 const err = { message: BASIC_DETAILS_ERROR };
 
-/** A valid past date (DOB). */
-const pastDate = z
+// Optional fields: accept "" (not yet filled) OR a correctly-formatted value. Only Full name,
+// Email and Mobile are mandatory at capture (business decision); the rest can be filled later.
+// The Operations handover stays strict — it re-checks the FULL record (isBasicComplete).
+const optionalText = z.string().trim().max(200).optional();
+const optionalDob = z
   .string()
-  .refine((s) => {
-    const d = new Date(s);
-    return !Number.isNaN(d.getTime()) && d.getTime() < Date.now();
-  }, err);
+  .trim()
+  .refine((s) => s === "" || (!Number.isNaN(new Date(s).getTime()) && new Date(s).getTime() < Date.now()), err)
+  .optional();
+const optionalPincode = z
+  .string()
+  .trim()
+  .refine((s) => s === "" || /^\d{6}$/.test(s), err)
+  .optional();
 
 export const basicDetailsSchema = z.object({
-  fullName: z.string(err).trim().min(2, err),
-  dob: pastDate,
-  doorNo: z.string(err).trim().min(1, err),
-  street: z.string(err).trim().min(1, err),
-  address: z.string(err).trim().min(1, err),
-  district: z.string(err).trim().min(1, err),
-  state: z.string(err).trim().min(1, err),
-  pincode: z.string(err).trim().regex(/^\d{6}$/, err),
-  email: z.string(err).trim().toLowerCase().email(err),
+  fullName: z.string(err).trim().min(2, err), // required *
+  email: z.string(err).trim().toLowerCase().email(err), // required *
   mobile: z
     .string(err)
     .trim()
-    .regex(/^(\+?\d{1,3}[- ]?)?\d{10}$/, err),
+    .regex(/^(\+?\d{1,3}[- ]?)?\d{10}$/, err), // required *
+  dob: optionalDob,
+  doorNo: optionalText,
+  street: optionalText,
+  address: optionalText,
+  district: optionalText,
+  state: optionalText,
+  pincode: optionalPincode,
   leadSource: z.string().trim().max(120).optional(),
   remarks: z.string().trim().max(1000).optional(),
 });
