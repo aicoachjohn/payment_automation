@@ -284,6 +284,23 @@ export const captureItemSchema = z.object({
 
 export const capturePaymentSchema = leadIdSchema.merge(captureItemSchema);
 
+/** The salesperson confirming a lead-uploaded (held) proof into a payment — proof by id. */
+export const confirmSelfProofSchema = z.object({
+  leadId: z.string().min(1),
+  selfProofId: z.string().min(1),
+  receivedAmount: money2,
+  paymentDate: z.string().datetime(),
+  paymentMethod: z.nativeEnum(PaymentMethod),
+  transactionId: z.string().trim().min(4, "Enter the Transaction ID."),
+  confirmations: z.object({
+    receivedAmount: z.boolean(),
+    paymentDate: z.boolean(),
+    transactionId: z.boolean(),
+    paymentMethod: z.boolean(),
+  }),
+  varianceReason: z.string().trim().max(1000).optional(),
+});
+
 // ── Enrollment intake (one-bundle hands-free capture) ─────────────────────────
 
 /** Paste-the-message extract call (proofs travel as multipart, not in this schema). */

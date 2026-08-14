@@ -22,6 +22,7 @@ const EMPTY = {
 
 export function IntakeForm({ token }: { token: string }) {
   const [f, setF] = useState(EMPTY);
+  const [files, setFiles] = useState<File[]>([]);
   const [company, setCompany] = useState(""); // honeypot
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -37,12 +38,14 @@ export function IntakeForm({ token }: { token: string }) {
     e.preventDefault();
     setError(null);
     start(async () => {
-      const res = await submitIntakeAction({ token, ...f, interestedProgram: f.interestedProgram as Program, interestedPlan: f.interestedPlan as Plan, company });
-      if (res?.serverError) return setError(res.serverError);
-      if (res?.validationErrors) return setError("Please check the highlighted fields and try again.");
-      const data = res?.data;
-      if (data?.ok) setDone(true);
-      else setError(data?.error ?? "Something went wrong. Please try again.");
+      const fd = new FormData();
+      fd.append("token", token);
+      fd.append("company", company);
+      for (const [k, v] of Object.entries(f)) fd.append(k, v);
+      for (const file of files) fd.append("file", file);
+      const res = await submitIntakeAction(fd);
+      if (res?.ok) setDone(true);
+      else setError(res?.error ?? "Something went wrong. Please try again.");
     });
   }
 
@@ -91,6 +94,21 @@ export function IntakeForm({ token }: { token: string }) {
             <option value={Plan.PREMIUM}>Premium</option>
           </select>
         </Field>
+      </div>
+
+      <div className="space-y-1 rounded-lg border border-dashed border-brand-blue/40 bg-brand-blue-50/40 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+        <label className={labelCls}>Payment screenshot / receipt <span className="text-slate-400">(optional — if you&apos;ve paid)</span></label>
+        <input
+          type="file"
+          accept="image/jpeg,image/png,application/pdf"
+          multiple
+          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+          className="mt-1 block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-navy file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-navy-700 dark:text-slate-300"
+        />
+        {files.length > 0 && (
+          <p className="text-xs text-slate-500">{files.length} file{files.length > 1 ? "s" : ""} attached: {files.map((x) => x.name).join(", ")}</p>
+        )}
+        <p className="text-xs text-slate-400">Your advisor will verify and confirm the payment.</p>
       </div>
 
       {/* Honeypot — hidden from humans; bots fill it and are silently dropped. */}

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/server/auth/session";
 import { authActionClient } from "@/server/safe-action";
 import { AuthorizationError } from "@/server/auth/permissions";
-import { capturePaymentSchema, proofIdSchema } from "@/lib/schemas";
+import { capturePaymentSchema, proofIdSchema, confirmSelfProofSchema } from "@/lib/schemas";
 import {
   uploadProof,
   capturePayment,
@@ -12,6 +12,7 @@ import {
   replaceProof,
   PaymentError,
 } from "@/server/services/payments";
+import { confirmSelfProof } from "@/server/services/lead-intake-link";
 
 async function actorOrThrow() {
   const ctx = await getSession();
@@ -70,4 +71,14 @@ export const requestProofUrlAction = authActionClient
   .action(async ({ parsedInput, ctx }) => {
     const url = await issueProofUrl(ctx.actor, parsedInput.proofId);
     return { ok: true as const, url };
+  });
+
+/** Salesperson confirms a lead-uploaded (held) proof into a payment (BR-20 human check). */
+export const confirmSelfProofAction = authActionClient
+  .schema(confirmSelfProofSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const { leadId, selfProofId, ...rest } = parsedInput;
+    const result = await confirmSelfProof(ctx.actor, leadId, selfProofId, rest);
+    revalidatePath(`/leads/${leadId}`);
+    return { ok: true as const, ...result };
   });

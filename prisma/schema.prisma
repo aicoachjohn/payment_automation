@@ -233,15 +233,40 @@ model Lead {
   createdAt         DateTime   @default(now()) @map("created_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")
 
-  salesperson User           @relation("SalespersonLeads", fields: [salespersonId], references: [id], onDelete: Restrict)
+  salesperson User            @relation("SalespersonLeads", fields: [salespersonId], references: [id], onDelete: Restrict)
   enrollment  Enrollment?
   followUps   FollowUpTask[]
+  selfProofs  LeadSelfProof[]
 
   @@index([salespersonId])
   @@index([mobile])
   @@index([email])
   @@index([status])
   @@map("lead")
+}
+
+/// A payment screenshot/PDF the LEAD uploaded on the public self-intake form. Held (staged +
+/// OCR'd) against the lead until the SALESPERSON confirms it (BR-20 human check) into a real
+/// Payment — at which point consumedPaymentId is set. Never a Payment itself, so Finance/audit
+/// only ever see it after the salesperson captures + Nandhiya approves it.
+model LeadSelfProof {
+  id                String   @id @default(cuid()) @map("self_proof_id")
+  leadId            String   @map("lead_id")
+  storageKey        String   @map("storage_key")
+  checksumSha256    String   @map("checksum_sha256")
+  fileType          String   @map("file_type")
+  fileSize          Int      @map("file_size")
+  originalFilename  String?  @map("original_filename")
+  ocrFields         Json?    @map("ocr_fields")
+  ocrConfidence     Json?    @map("ocr_confidence")
+  consumedPaymentId String?  @map("consumed_payment_id")
+  ipAddress         String?  @map("ip_address")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Restrict)
+
+  @@index([leadId])
+  @@map("lead_self_proof")
 }
 
 model Enrollment {

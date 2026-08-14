@@ -9,11 +9,12 @@
  */
 import "server-only";
 import { createHash, randomInt } from "node:crypto";
-import { Program, Plan, UserStatus, LeadStatus } from "@prisma/client";
+import { Program, Plan, PaymentMethod, UserStatus, LeadStatus, type Prisma } from "@prisma/client";
 import { db } from "@/server/db";
 import { writeAudit } from "@/server/audit";
 import { requirePermission, type Actor } from "@/server/auth/permissions";
-import { checkDuplicate, advanceLeadStatus } from "@/server/services/leads";
+import { checkDuplicate, advanceLeadStatus, getLeadForActor } from "@/server/services/leads";
+import { stageProof, capturePayment, type UploadedProof } from "@/server/services/payments";
 import { INTAKE_LINK } from "@/lib/constants";
 
 function sha256(raw: string): string {
@@ -58,7 +59,12 @@ export type IntakeResult = { ok: true } | { ok: false; error: string };
  * inviting salesperson, with a complete record. Single-use: consumes the token in the same
  * transaction. The audit write is attributed to the owning salesperson (there is no lead-user).
  */
-export async function submitIntake(rawToken: string, data: IntakeData, ip?: string | null): Promise<IntakeResult> {
+export async function submitIntake(
+  rawToken: string,
+  data: IntakeData,
+  ip?: string | null,
+  proofs?: { bytes: Uint8Array; originalFilename: string }[],
+): Promise<IntakeResult> {
   const invite = await db.leadIntakeInvite.findUnique({ where: { tokenHash: sha256(rawToken) } });
   if (!invite || invite.usedAt || invite.expiresAt.getTime() < Date.now()) {
     return { ok: false, error: "This link is invalid or has already been used." };
@@ -73,6 +79,18 @@ export async function submitIntake(rawToken: string, data: IntakeData, ip?: stri
   for (const field of ["mobile", "email"] as const) {
     const dup = await checkDuplicate(field, data[field]);
     if (dup) return { ok: false, error: `A record with this ${field} already exists. Please contact your advisor.` };
+  }
+
+  // Stage any lead-uploaded payment proofs BEFORE the txn (external storage/scan/OCR I/O). A
+  // bad file is skipped rather than failing the whole submission. NOT captured as a payment —
+  // held for the salesperson to confirm (BR-20) once the fee is locked.
+  const staged: UploadedProof[] = [];
+  for (const p of proofs ?? []) {
+    try {
+      staged.push(await stageProof(actor, p));
+    } catch {
+      /* skip an unreadable / rejected file */
+    }
   }
 
   await db.$transaction(async (tx) => {
@@ -111,6 +129,21 @@ export async function submitIntake(rawToken: string, data: IntakeData, ip?: stri
       actor,
       ip,
     });
+    for (const s of staged) {
+      await tx.leadSelfProof.create({
+        data: {
+          leadId: lead.id,
+          storageKey: s.key,
+          checksumSha256: s.checksum,
+          fileType: s.fileType,
+          fileSize: s.fileSize,
+          originalFilename: s.originalFilename,
+          ocrFields: s.ocr.fields as Prisma.InputJsonValue,
+          ocrConfidence: s.ocr.confidence as Prisma.InputJsonValue,
+          ipAddress: ip ?? null,
+        },
+      });
+    }
     await tx.leadIntakeInvite.update({
       where: { id: invite.id },
       data: { usedAt: new Date(), createdLeadId: lead.id, ipAddress: ip ?? null },
@@ -120,4 +153,78 @@ export async function submitIntake(rawToken: string, data: IntakeData, ip?: stri
 
   await db.securityEvent.create({ data: { eventType: "LEAD_INTAKE_SUBMITTED", userId: sp.id, ipAddress: ip ?? null } });
   return { ok: true };
+}
+
+// ── Salesperson-side: review + confirm the lead's uploaded payment proof(s) ───────
+
+export interface HeldProof {
+  id: string;
+  originalFilename: string | null;
+  fileType: string;
+  createdAt: string;
+  ocr: { receivedAmount?: string; paymentDate?: string; transactionId?: string; paymentMethod?: string; payerName?: string };
+}
+
+/** Owner-scoped load of a held proof's storage descriptor (for the in-app image preview). */
+export async function getSelfProofForActor(actor: Actor, selfProofId: string): Promise<{ storageKey: string; fileType: string } | null> {
+  const held = await db.leadSelfProof.findUnique({ where: { id: selfProofId } });
+  if (!held) return null;
+  await getLeadForActor(actor, held.leadId); // ownership — throws if not permitted
+  return { storageKey: held.storageKey, fileType: held.fileType };
+}
+
+/** List the lead's not-yet-confirmed self-uploaded payment proofs (owner-scoped). */
+export async function listSelfProofs(actor: Actor, leadId: string): Promise<HeldProof[]> {
+  await getLeadForActor(actor, leadId); // ownership
+  const rows = await db.leadSelfProof.findMany({
+    where: { leadId, consumedPaymentId: null },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    originalFilename: r.originalFilename,
+    fileType: r.fileType,
+    createdAt: r.createdAt.toISOString(),
+    ocr: (r.ocrFields as HeldProof["ocr"]) ?? {},
+  }));
+}
+
+export interface ConfirmProofInput {
+  receivedAmount: string;
+  paymentDate: string;
+  paymentMethod: PaymentMethod;
+  transactionId: string;
+  confirmations: Record<"receivedAmount" | "paymentDate" | "transactionId" | "paymentMethod", boolean>;
+  varianceReason?: string;
+}
+
+/**
+ * The salesperson confirms a held (lead-uploaded) proof into a real Payment — the BR-20 human
+ * check. Requires the enrollment fee to be locked first (generateDraft), exactly like a normal
+ * capture. The held proof is already staged, so capturePayment reuses its key + OCR sidecar.
+ */
+export async function confirmSelfProof(actor: Actor, leadId: string, selfProofId: string, input: ConfirmProofInput) {
+  await getLeadForActor(actor, leadId); // ownership
+  const held = await db.leadSelfProof.findUnique({ where: { id: selfProofId } });
+  if (!held || held.leadId !== leadId || held.consumedPaymentId) {
+    throw new Error("That payment proof is no longer available.");
+  }
+  const result = await capturePayment(actor, leadId, {
+    proof: {
+      key: held.storageKey,
+      checksum: held.checksumSha256,
+      fileType: held.fileType,
+      fileSize: held.fileSize,
+      originalFilename: held.originalFilename ?? "learner-proof",
+    },
+    receivedAmount: input.receivedAmount,
+    paymentDate: input.paymentDate,
+    paymentMethod: input.paymentMethod,
+    transactionId: input.transactionId,
+    confirmations: input.confirmations,
+    varianceReason: input.varianceReason,
+    manualEntryNoOcr: false,
+  });
+  await db.leadSelfProof.update({ where: { id: held.id }, data: { consumedPaymentId: result.paymentId } });
+  return result;
 }

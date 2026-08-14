@@ -5,10 +5,12 @@ import { getLeadForActor } from "@/server/services/leads";
 import { draftGenerationBlockers, listDraftVersions, getDraftConfig } from "@/server/services/draft";
 import { listPaymentsForLead } from "@/server/services/payments";
 import { listFollowUpsForLead } from "@/server/services/follow-ups";
+import { listSelfProofs } from "@/server/services/lead-intake-link";
 import { AuthorizationError, hasPermission } from "@/server/auth/permissions";
 import { LeadDetailClient, type LeadDetail } from "./lead-detail-client";
 import { DraftPanel } from "./draft-panel";
 import { PaymentPanel } from "./payment-panel";
+import { SelfProofPanel } from "./self-proof-panel";
 import { AutomationPanel } from "./automation-panel";
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -60,12 +62,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       : null,
   };
 
-  const [blockers, versions, config, paymentData, followUps] = await Promise.all([
+  const [blockers, versions, config, paymentData, followUps, selfProofs] = await Promise.all([
     draftGenerationBlockers(id, actor),
     listDraftVersions(actor, id),
     getDraftConfig(),
     listPaymentsForLead(actor, id),
     listFollowUpsForLead(actor, id),
+    listSelfProofs(actor, id),
   ]);
 
   return (
@@ -82,6 +85,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           whatsappEnabled={config.whatsappEnabled}
           learnerMobile={detail.mobile}
         />
+      )}
+      {selfProofs.length > 0 && (
+        <SelfProofPanel leadId={id} proofs={selfProofs} feeLocked={Boolean(detail.enrollment?.feeLocked)} />
       )}
       {detail.enrollment?.feeLocked && (
         <PaymentPanel
