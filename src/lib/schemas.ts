@@ -192,6 +192,12 @@ export const intakeInviteSchema = z.object({
   note: z.string().trim().max(120).optional(),
 });
 
+/** Removing (voiding) a lead — a mandatory reason is kept in history (BR-21/BR-26). */
+export const voidLeadSchema = z.object({
+  leadId: z.string().min(1),
+  reason: z.string().trim().min(3, "Please give a short reason.").max(300),
+});
+
 /** New-lead create: only name + salesperson are required up front (FR-SAL-07). */
 export const leadAutofillTextSchema = z.object({
   text: z.string().trim().min(2, "Paste the enquiry text to auto-fill.").max(5000),

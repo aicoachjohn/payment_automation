@@ -22,6 +22,7 @@ export type Permission =
   | "lead:read:all"
   | "lead:update:own"
   | "lead:update:all"
+  | "lead:void:own"
   | "payment:create"
   | "payment:update:own"
   | "payment:audit"
@@ -51,6 +52,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "lead:create",
     "lead:read:own",
     "lead:update:own",
+    "lead:void:own",
     "payment:create",
     "payment:update:own",
     "concession:create",
@@ -61,6 +63,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   [Role.SALES_MANAGER]: new Set<Permission>([
     "lead:read:all",
     "lead:update:all",
+    "lead:void:own",
     "payment:create",
     "payment:update:own",
     "finance:read",

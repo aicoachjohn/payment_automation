@@ -22,6 +22,9 @@ const EXPECTED: Record<Permission, Role[]> = {
   "lead:read:all": [Role.SALES_MANAGER, Role.DATA_MGMT_AUDITOR, Role.FINANCE_REVIEWER, Role.SUPER_ADMIN],
   "lead:update:own": [Role.SALESPERSON],
   "lead:update:all": [Role.SALES_MANAGER, Role.SUPER_ADMIN],
+  // Extension beyond the original FRD matrix (business request): a salesperson / manager may
+  // VOID (soft-delete) their own lead — never a hard delete (BR-21/BR-26).
+  "lead:void:own": [Role.SALESPERSON, Role.SALES_MANAGER],
   "payment:create": [Role.SALESPERSON, Role.SALES_MANAGER],
   "payment:update:own": [Role.SALESPERSON, Role.SALES_MANAGER],
   "payment:audit": [Role.DATA_MGMT_AUDITOR],

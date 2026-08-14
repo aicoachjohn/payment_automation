@@ -12,6 +12,7 @@ import {
   requestConcessionAction,
   decideConcessionAction,
   checkDuplicateAction,
+  voidLeadAction,
 } from "@/app/(sales)/leads/actions";
 import { extractEnrollmentBundleAction, applyEnrollmentBundleAction } from "@/app/(sales)/leads/enrollment-actions";
 import {
@@ -73,11 +74,14 @@ export function LeadDetailClient({ lead, canApproveConcession }: { lead: LeadDet
           <h1 className="text-2xl font-semibold">{lead.fullName}</h1>
           <p className="text-sm text-slate-500">Status: {lead.status}</p>
         </div>
-        {lead.status === "NEW_LEAD" && (
-          <button className={btn} disabled={pending} onClick={() => run(() => markInterestedAction({ leadId: lead.id }))}>
-            Mark interested
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {lead.status === "NEW_LEAD" && (
+            <button className={btn} disabled={pending} onClick={() => run(() => markInterestedAction({ leadId: lead.id }))}>
+              Mark interested
+            </button>
+          )}
+          <DeleteLeadButton leadId={lead.id} leadName={lead.fullName} />
+        </div>
       </div>
 
       {banner && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">{banner}</p>}
@@ -352,6 +356,65 @@ function AutofillPanel({ leadId }: { leadId: string }) {
         </div>
       )}
     </section>
+  );
+}
+
+/** Remove (void) a lead — soft delete with a mandatory reason; kept in history (BR-21/BR-26). */
+function DeleteLeadButton({ leadId, leadName }: { leadId: string; leadName: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  function confirm() {
+    setError(null);
+    start(async () => {
+      const res = await voidLeadAction({ leadId, reason });
+      if (res?.serverError) return setError(res.serverError);
+      if (res?.validationErrors) return setError("Please give a short reason (at least 3 characters).");
+      if (res?.data?.ok) router.push("/sales");
+    });
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+      >
+        Delete lead
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-2 w-80 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          <p className="text-sm font-medium text-brand-navy dark:text-slate-100">Remove {leadName}?</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            The lead is voided (hidden from your lists) but kept in history with your reason. This cannot be undone here.
+          </p>
+          {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+          <input
+            className="mt-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800"
+            placeholder="Reason (required) — e.g. duplicate / test / wrong number"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={confirm}
+              disabled={pending || reason.trim().length < 3}
+              className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {pending ? "Removing…" : "Confirm delete"}
+            </button>
+            <button type="button" onClick={() => { setOpen(false); setError(null); }} className="ml-auto text-xs text-slate-400 hover:underline">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

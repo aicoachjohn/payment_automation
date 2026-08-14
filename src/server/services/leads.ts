@@ -223,6 +223,47 @@ export async function updateBasicDetails(
 }
 
 /** The only manual transition: NEW_LEAD → INTERESTED (FR §3.4). */
+/**
+ * "Delete" a lead the salesperson added — a VOID, never a hard delete (BR-21/BR-26): the lead
+ * is hidden from all active lists (scopeWhere filters voided) but stays in history with a reason
+ * and an immutable audit entry. Own-lead only; a mandatory reason is required. BLOCKED when an
+ * APPROVED payment exists — that is real money Finance sees, and voiding it would create a
+ * reconciliation exception; such a case must go through a Super Admin reversal first. Any
+ * non-approved (pending/rejected) payments are voided too, so they drop out of the audit queue.
+ */
+export async function voidLead(actor: Actor, leadId: string, reason: string): Promise<void> {
+  const lead = await getLeadForActor(actor, leadId); // ownership (own-lead for a salesperson)
+  requirePermission(actor, "lead:void:own");
+  const trimmed = reason.trim();
+  if (trimmed.length < 3) throw new LeadError("Please give a short reason for removing this lead.");
+  if (lead.voided) return; // idempotent
+
+  const enrollment = await db.enrollment.findUnique({ where: { leadId }, include: { payments: true } });
+  const payments = enrollment?.payments ?? [];
+  if (payments.some((p) => p.auditStatus === AuditStatus.APPROVED && !p.voided)) {
+    throw new LeadError("This lead has an approved payment. Ask a Super Admin to reverse it before removing the lead.");
+  }
+
+  await db.$transaction(async (tx) => {
+    for (const p of payments) {
+      if (!p.voided) {
+        await tx.payment.update({ where: { id: p.id }, data: { voided: true, voidedReason: `Lead removed: ${trimmed}` } });
+      }
+    }
+    await tx.lead.update({ where: { id: leadId }, data: { voided: true, voidedReason: trimmed } });
+    await writeAudit(tx, {
+      entityType: "Lead",
+      entityId: leadId,
+      action: "VOID",
+      changes: [
+        { field: "voided", oldValue: "false", newValue: "true" },
+        { field: "voidedReason", oldValue: null, newValue: trimmed },
+      ],
+      actor,
+    });
+  });
+}
+
 export async function markInterested(actor: Actor, leadId: string): Promise<void> {
   const lead = await getLeadForActor(actor, leadId);
   requirePermission(actor, "lead:update:own");

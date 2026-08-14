@@ -14,6 +14,7 @@ import {
   concessionRequestSchema,
   concessionDecisionSchema,
   intakeInviteSchema,
+  voidLeadSchema,
 } from "@/lib/schemas";
 import { createIntakeInvite } from "@/server/services/lead-intake-link";
 import {
@@ -24,6 +25,7 @@ import {
   requestConcession,
   decideConcession,
   checkDuplicate,
+  voidLead,
 } from "@/server/services/leads";
 import { extractLeadFromText, extractLeadFromUpload, LeadIntakeError } from "@/server/services/lead-intake";
 import { generateDraft, emailDraft } from "@/server/services/draft";
@@ -126,6 +128,16 @@ export const emailDraftAction = authActionClient
   .schema(leadIdSchema)
   .action(async ({ parsedInput, ctx }) => {
     await emailDraft(ctx.actor, parsedInput.leadId);
+    return { ok: true as const };
+  });
+
+/** Remove (void) a lead the salesperson added — soft delete with a reason (BR-21/BR-26). */
+export const voidLeadAction = authActionClient
+  .schema(voidLeadSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    await voidLead(ctx.actor, parsedInput.leadId, parsedInput.reason);
+    revalidatePath("/sales");
+    revalidatePath(`/leads/${parsedInput.leadId}`);
     return { ok: true as const };
   });
 
