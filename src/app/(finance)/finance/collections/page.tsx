@@ -70,8 +70,8 @@ export default async function FinanceCollectionsPage({
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Monthly Collection Summary — {MONTHS[month - 1]} {year}</h2>
           <div className="flex gap-2">
-            <a href={exp("monthly", "csv")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">CSV</a>
-            <a href={exp("monthly", "pdf")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">PDF</a>
+            <a href={exp("monthly", "csv")} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">CSV</a>
+            <a href={exp("monthly", "pdf")} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">PDF</a>
           </div>
         </div>
         <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
@@ -92,8 +92,8 @@ export default async function FinanceCollectionsPage({
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">GST Summary — {MONTHS[month - 1]} {year}</h2>
           <div className="flex gap-2">
-            <a href={exp("gst", "csv")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">CSV</a>
-            <a href={exp("gst", "pdf")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">PDF</a>
+            <a href={exp("gst", "csv")} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">CSV</a>
+            <a href={exp("gst", "pdf")} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">PDF</a>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
@@ -115,8 +115,8 @@ export default async function FinanceCollectionsPage({
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Outstanding Balances</h2>
           <div className="flex gap-2">
-            <a href={exp("outstanding", "csv")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">CSV</a>
-            <a href={exp("outstanding", "pdf")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">PDF</a>
+            <a href={exp("outstanding", "csv")} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">CSV</a>
+            <a href={exp("outstanding", "pdf")} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">PDF</a>
           </div>
         </div>
         <p className="text-sm text-slate-500">Total outstanding: <strong>{formatINR(outstanding.total)}</strong> across {outstanding.rows.length} learner{outstanding.rows.length === 1 ? "" : "s"}.</p>

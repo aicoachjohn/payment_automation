@@ -122,10 +122,10 @@ export default async function FinanceStatementPage({
           <input name="search" defaultValue={sp.search ?? ""} placeholder="Name, mobile, email, Txn ID" className="rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800" />
         </label>
         <button type="submit" className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Apply</button>
-        <Link href="/finance" className="text-sm text-slate-500 hover:underline">Clear</Link>
+        <Link href="/finance" className="inline-flex min-h-[44px] items-center text-sm text-slate-500 hover:underline sm:min-h-0">Clear</Link>
         <div className="ml-auto flex gap-2">
-          <a href={csvHref} className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export CSV</a>
-          <a href={pdfHref} className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export PDF</a>
+          <a href={csvHref} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export CSV</a>
+          <a href={pdfHref} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export PDF</a>
         </div>
       </form>
 

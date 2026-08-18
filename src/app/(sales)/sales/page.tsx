@@ -53,18 +53,18 @@ export default async function SalesHome({
 
   return (
     <section className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Sales Dashboard</h1>
           <p className="text-sm text-slate-500">
             {isManager ? "All leads across the team." : "Your leads."} Welcome, {user.name}.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Link href="/leads/intake" className="rounded-md bg-brand-navy px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-navy-700">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/leads/intake" className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md bg-brand-navy px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-navy-700">
             Enrollment from uploads
           </Link>
-          <Link href="/leads/new" className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">
+          <Link href="/leads/new" className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">
             + New lead
           </Link>
           <ShareIntakeLinkButton />
@@ -138,7 +138,7 @@ export default async function SalesHome({
           </select>
         </label>
         <button type="submit" className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Filter</button>
-        <Link href="/sales" className="text-sm text-slate-500 hover:underline">Clear</Link>
+        <Link href="/sales" className="inline-flex min-h-[44px] items-center text-sm text-slate-500 hover:underline sm:min-h-0">Clear</Link>
       </form>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">

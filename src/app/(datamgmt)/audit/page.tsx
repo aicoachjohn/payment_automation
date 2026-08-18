@@ -70,8 +70,8 @@ export default async function AuditHome({
           </select>
         </label>
         <button type="submit" className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Filter</button>
-        <Link href="/audit" className="text-sm text-slate-500 hover:underline">Clear</Link>
-        <a href={`/api/audit/export?${query}`} className="ml-auto rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export CSV</a>
+        <Link href="/audit" className="inline-flex min-h-[44px] items-center text-sm text-slate-500 hover:underline sm:min-h-0">Clear</Link>
+        <a href={`/api/audit/export?${query}`} className="inline-flex min-h-[44px] items-center sm:min-h-0 ml-auto rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export CSV</a>
       </form>
 
       <AuditQueueClient rows={rows} />

@@ -51,7 +51,7 @@ export function AppShell({
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="rounded-md px-2.5 py-1.5 font-medium text-slate-600 transition hover:bg-brand-blue-50 hover:text-brand-navy dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+                  className="inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1.5 font-medium text-slate-600 transition hover:bg-brand-blue-50 hover:text-brand-navy sm:min-h-0 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
                 >
                   {item.label}
                 </Link>

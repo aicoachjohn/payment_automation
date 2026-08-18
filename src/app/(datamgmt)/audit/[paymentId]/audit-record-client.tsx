@@ -67,7 +67,7 @@ export function AuditRecordClient({ record, timeline, reasonCodes }: { record: R
           <p className="text-sm text-slate-500">{record.program}/{record.plan} · owner {record.ownerName} · status {record.auditStatus}</p>
           {record.delegatedAudit && <p className="mt-1 inline-block rounded bg-violet-100 px-2 py-0.5 text-xs text-violet-800 dark:bg-violet-950 dark:text-violet-300">Audited by Super Admin (delegated)</p>}
         </div>
-        <a href={`/api/audit/${record.id}/timeline`} className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Timeline PDF</a>
+        <a href={`/api/audit/${record.id}/timeline`} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Timeline PDF</a>
       </div>
 
       {banner && <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">{banner}</p>}

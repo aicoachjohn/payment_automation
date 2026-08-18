@@ -52,8 +52,8 @@ export default async function AuditTrailPage({ searchParams }: { searchParams: P
           <input type="date" name="to" defaultValue={sp.to ?? ""} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800" />
         </label>
         <button type="submit" className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Search</button>
-        <Link href="/admin/audit" className="text-sm text-slate-500 hover:underline">Clear</Link>
-        <a href={`/api/admin/audit/export?${exportQuery}`} className="ml-auto rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export CSV</a>
+        <Link href="/admin/audit" className="inline-flex min-h-[44px] items-center text-sm text-slate-500 hover:underline sm:min-h-0">Clear</Link>
+        <a href={`/api/admin/audit/export?${exportQuery}`} className="inline-flex min-h-[44px] items-center sm:min-h-0 ml-auto rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export CSV</a>
       </form>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">

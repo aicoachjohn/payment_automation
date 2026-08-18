@@ -54,6 +54,27 @@ h3 {
   border-radius: 4px;
 }
 
+/*
+ * NFR-10 — finger-sized controls on phones and touch devices.
+ *
+ * A mouse can comfortably hit a 32px control; a fingertip needs roughly 44px (Apple HIG,
+ * WCAG 2.5.5 Target Size). Scoped to small screens and coarse pointers so the denser
+ * desktop layout is left exactly as it is. `:where()` keeps specificity at zero, so any
+ * Tailwind utility on the element still overrides it.
+ */
+@media (max-width: 640px), (pointer: coarse) {
+  :where(button, [role="button"], select, textarea),
+  :where(input):not([type="hidden"], [type="checkbox"], [type="radio"]) {
+    min-height: 44px;
+  }
+
+  /* Boxes scale up rather than stretching into a tall ribbon. */
+  :where(input[type="checkbox"], input[type="radio"]) {
+    width: 20px;
+    height: 20px;
+  }
+}
+
 /* Links inside prose lean on the accent. */
 ::selection {
   background: color-mix(in srgb, var(--color-brand-blue) 30%, transparent);

@@ -29,7 +29,7 @@ export default async function HandoverPage({ params }: { params: Promise<{ id: s
               {h.type} · {h.validated ? "Validated" : "Incomplete"}{h.handoverDate ? ` · ${formatDate(h.handoverDate)}` : ""}
             </p>
           </div>
-          <a href={`/api/handover/${h.id}/pdf`} className="rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export PDF</a>
+          <a href={`/api/handover/${h.id}/pdf`} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export PDF</a>
         </div>
 
         {h.missing.length > 0 && (

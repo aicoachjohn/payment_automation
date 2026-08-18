@@ -71,9 +71,9 @@ export default async function AdminHome() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Link href="/admin/overrides" className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900">Override tools →</Link>
-        <Link href="/admin/audit" className="rounded-md border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Audit trail →</Link>
-        <Link href="/admin/activity" className="rounded-md border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">My activity log →</Link>
+        <Link href="/admin/overrides" className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900">Override tools →</Link>
+        <Link href="/admin/audit" className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Audit trail →</Link>
+        <Link href="/admin/activity" className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">My activity log →</Link>
       </div>
     </section>
   );
