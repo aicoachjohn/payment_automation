@@ -80,7 +80,7 @@ combined). See `UAT_EVIDENCE.md` for the table.
 | NFR-06/07/07a | Private storage, server-side RBAC, 2FA | ✅ Implemented |
 | NFR-08 | Session timeout | ✅ Implemented (config-driven, tighter for SA) |
 | NFR-09 | Daily backup + tested restore | ⚠️ Ready, not executed (see FR-SEC-34..37) |
-| NFR-10 | Usable on a phone browser | ⚠️ Mobile-first Tailwind + `overflow-x` lists throughout; **not visually QA'd at 390px** in this env |
+| NFR-10 | Usable on a phone browser | ✅ **Verified at 390×844** — `tests/e2e/mobile.spec.ts` drives all five roles across 27 route visits, asserting no horizontal page scroll and a 44px minimum touch target on every one |
 | NFR-11 | Actionable error messages | ✅ Safe, specific messages on every path |
 | NFR-12 | Current+previous Chrome/Edge/Safari | ❌ **Not matrix-tested** (no browser matrix here) |
 | NFR-13 | 7-yr retention | ✅ Append-only + archive-not-delete |
@@ -95,8 +95,10 @@ combined). See `UAT_EVIDENCE.md` for the table.
 - **FR-SEC-16 (field-level PII/Txn encryption):** deliberately deferred — needs a
   business decision with Rajesh on whether the deployment requires it. Recorded, not built.
 - **FR-SEC-33 / criterion #15 (pen test):** external engagement (D-09).
-- **NFR-03 load test, NFR-12 browser matrix, NFR-10 390px visual QA:** require test infra
-  (load generator, device/browser lab) not available in the build environment.
+- **NFR-03 load test, NFR-12 browser matrix:** require test infra (load generator,
+  device/browser lab) not available in the build environment. NFR-10 is no longer in this
+  list — it is now covered automatically by `tests/e2e/mobile.spec.ts` at 390px. A real
+  handset pass is still worth doing at UAT, but the layout rule is enforced in CI.
 - **Real virus scanner (ClamAV) & S3 storage client:** shipped as env-selected adapters;
   email (SendGrid) and OCR (Google Vision) have working REST implementations via `fetch`.
   ClamAV (socket) and S3 (SigV4) need their client wired at deploy — no business logic
