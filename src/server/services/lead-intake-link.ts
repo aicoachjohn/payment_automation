@@ -15,6 +15,7 @@ import { writeAudit } from "@/server/audit";
 import { requirePermission, type Actor } from "@/server/auth/permissions";
 import { checkDuplicate, advanceLeadStatus, getLeadForActor } from "@/server/services/leads";
 import { stageProof, capturePayment, type UploadedProof } from "@/server/services/payments";
+import { notifyUser } from "@/server/notifications";
 import { INTAKE_LINK } from "@/lib/constants";
 
 function sha256(raw: string): string {
@@ -93,6 +94,7 @@ export async function submitIntake(
     }
   }
 
+  let newLeadId = "";
   await db.$transaction(async (tx) => {
     const lead = await tx.lead.create({
       data: {
@@ -149,9 +151,22 @@ export async function submitIntake(
       data: { usedAt: new Date(), createdLeadId: lead.id, ipAddress: ip ?? null },
     });
     await advanceLeadStatus(tx, lead.id, actor);
+    newLeadId = lead.id;
   });
 
   await db.securityEvent.create({ data: { eventType: "LEAD_INTAKE_SUBMITTED", userId: sp.id, ipAddress: ip ?? null } });
+
+  // Tell the owning salesperson their lead self-filled (and whether a payment proof came in).
+  const proofNote = staged.length ? ` and attached ${staged.length} payment proof${staged.length > 1 ? "s" : ""} to confirm` : "";
+  await notifyUser({
+    recipientId: sp.id,
+    recipientEmail: sp.email,
+    type: "LEAD_SELF_INTAKE",
+    subject: "A lead completed your intake form",
+    body: `${data.fullName.trim()} filled their enrollment details via your intake link${proofNote}.`,
+    relatedEntityType: "Lead",
+    relatedEntityId: newLeadId,
+  });
   return { ok: true };
 }
 

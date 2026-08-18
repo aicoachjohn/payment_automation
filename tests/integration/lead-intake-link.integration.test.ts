@@ -34,6 +34,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   if (createdLeadIds.length) {
+    await prisma.notification.deleteMany({ where: { relatedEntityId: { in: createdLeadIds } } });
     await prisma.leadIntakeInvite.deleteMany({ where: { createdLeadId: { in: createdLeadIds } } });
     await prisma.lead.deleteMany({ where: { id: { in: createdLeadIds } } });
   }
@@ -64,6 +65,10 @@ describe("lead self-intake link", () => {
     expect(lead.interestedProgram).toBe(Program.AGENTIC_AI_GENAI);
     expect(lead.interestedPlan).toBe(Plan.PREMIUM);
     expect(lead.leadSource).toBe("Self-intake link");
+
+    // The owning salesperson is notified.
+    const notif = await prisma.notification.findFirst({ where: { recipientId: mathiew.userId, type: "LEAD_SELF_INTAKE", relatedEntityId: lead.id } });
+    expect(notif).not.toBeNull();
 
     // The link is now spent — a second submit is rejected, and the token reads invalid.
     expect(await isIntakeTokenValid(raw)).toBe(false);
