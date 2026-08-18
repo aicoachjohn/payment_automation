@@ -14,12 +14,20 @@ export function istDayStartUtc(d: Date): Date {
 }
 
 /**
- * UTC instant of 23:59:59.999 IST on the IST calendar day containing `d` — the last moment
- * of "today" for a user in India. Used for trust that must end with the working day instead
- * of rolling a fixed number of hours into the next morning.
+ * The next "end of working day" boundary strictly after `d`, where the day is taken to end at
+ * `cutoffHourIst` IST rather than at midnight.
+ *
+ * A midnight boundary cuts across people still working — someone signing in at 22:00 loses
+ * trust two hours later. Moving the boundary into the small hours (04:00) keeps one evening
+ * whole while still guaranteeing that the first sign-in of the next MORNING is challenged,
+ * which is the point of the once-a-day rule. `cutoffHourIst = 0` gives the midnight boundary.
  */
-export function istEndOfDay(d: Date): Date {
-  return new Date(istDayStartUtc(d).getTime() + DAY_MS - 1);
+export function istNextDayBoundary(d: Date, cutoffHourIst: number): Date {
+  const hour = Math.min(23, Math.max(0, Math.trunc(cutoffHourIst)));
+  const todaysBoundary = istDayStartUtc(d).getTime() + hour * 3_600_000;
+  // Strictly after: landing exactly on the boundary starts a fresh day rather than expiring
+  // instantly.
+  return new Date(todaysBoundary > d.getTime() ? todaysBoundary : todaysBoundary + DAY_MS);
 }
 
 /** `YYYY-MM-DD` of the IST calendar day (used in job idempotency keys). */

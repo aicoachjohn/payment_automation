@@ -4,11 +4,12 @@
  *
  * After a user clears 2FA, their browser is handed an opaque random token in an HttpOnly
  * cookie and a matching row is written here. While that row is live, signing in on THAT
- * browser needs only the password. Trust lapses at the END OF THE IST WORKING DAY, so the
- * first sign-in each morning always asks for a code — a rolling 24-hour window would instead
- * carry overnight and skip that morning. Config-driven via `two_fa_trust_scope`
- * (`working_day` | `off`) so the Super Admin can switch it off without a code change
- * (BR-13, NFR-16).
+ * browser needs only the password. Trust lapses at the END OF THE IST WORKING DAY — 04:00
+ * IST by default, not midnight, so a late evening is not cut in half while the first sign-in
+ * of the next morning is still challenged. A rolling 24-hour window would instead carry
+ * overnight and skip that morning entirely. Config-driven via `two_fa_trust_scope`
+ * (`working_day` | `off`) and `two_fa_trust_day_end_hour_ist` (0-23), so both the behaviour
+ * and the boundary are the Super Admin's to change without a code change (BR-13, NFR-16).
  *
  * The security properties that are deliberately preserved:
  *   · Only the SHA-256 hash is stored, so a leaked database row cannot be replayed.
@@ -22,28 +23,38 @@ import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/server/db";
 import { TRUSTED_DEVICE_COOKIE } from "@/lib/constants";
-import { getConfigString } from "@/server/services/system-config";
-import { istEndOfDay } from "@/lib/ist";
+import { getConfigNumber, getConfigString } from "@/server/services/system-config";
+import { istNextDayBoundary } from "@/lib/ist";
 
 function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
 /**
- * How far one 2FA pass carries. `working_day` (the default) means it lapses at 23:59:59.999
- * IST the same day, so the first sign-in each morning always asks for a code — a fixed
- * 24-hour window would instead roll overnight and skip that morning. `off` demands a code
- * every time. Anything unrecognised is treated as `off`: an unreadable setting must fail
- * toward asking, never toward trusting.
+ * How far one 2FA pass carries. `working_day` (the default) means it lapses at the next
+ * end-of-day boundary (see `trustDayEndHourIst`), so the first sign-in each morning always
+ * asks for a code — a fixed 24-hour window would instead roll overnight and skip it. `off`
+ * demands a code every time. Anything unrecognised is treated as `off`: an unreadable setting
+ * must fail toward asking, never toward trusting.
  */
 export async function trustedDeviceScope(): Promise<"working_day" | "off"> {
   const scope = await getConfigString("two_fa_trust_scope", "working_day");
   return scope === "working_day" ? "working_day" : "off";
 }
 
+/**
+ * The IST hour at which the working day is considered over. 4 (04:00) by default rather than
+ * midnight, so an evening session is not cut short at 00:00 while the first sign-in of the
+ * next morning is still challenged.
+ */
+export async function trustDayEndHourIst(): Promise<number> {
+  return getConfigNumber("two_fa_trust_day_end_hour_ist", 4);
+}
+
 /** When trust granted `now` should lapse, or null if the feature is switched off. */
 export async function trustedDeviceExpiry(now: Date = new Date()): Promise<Date | null> {
-  return (await trustedDeviceScope()) === "working_day" ? istEndOfDay(now) : null;
+  if ((await trustedDeviceScope()) !== "working_day") return null;
+  return istNextDayBoundary(now, await trustDayEndHourIst());
 }
 
 /**

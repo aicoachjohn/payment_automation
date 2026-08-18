@@ -58,16 +58,26 @@ test("the code is asked for on the first sign-in, then not again on the same bro
   const second = await signIn(page, FIN);
   expect(second.askedForCode, "a second sign-in the same day must NOT ask again").toBe(false);
 
-  // Trust must end with TODAY in India — not 24 hours later, which would skip tomorrow
-  // morning's challenge. 23:59:59.999 IST is 18:29:59.999 UTC.
+  // Trust must end at the next end-of-working-day boundary (04:00 IST by default) — not 24
+  // hours later, which would skip tomorrow morning's challenge.
   const user = await prisma.user.findUniqueOrThrow({ where: { email: FIN.email } });
   const device = await prisma.trustedDevice.findFirstOrThrow({
     where: { userId: user.id, revokedAt: null },
     orderBy: { createdAt: "desc" },
   });
   const IST = 330 * 60_000, DAY = 86_400_000;
-  const endOfIstDay = Math.floor((Date.now() + IST) / DAY) * DAY - IST + DAY - 1;
-  expect(device.expiresAt.getTime(), "trust must lapse at the end of the IST day").toBe(endOfIstDay);
+  const cutoffHour = Number(
+    (await prisma.systemConfig.findUnique({ where: { key: "two_fa_trust_day_end_hour_ist" } }))?.value ?? 4,
+  );
+  const now = Date.now();
+  const istMidnight = Math.floor((now + IST) / DAY) * DAY - IST;
+  const todaysBoundary = istMidnight + cutoffHour * 3_600_000;
+  const expected = todaysBoundary > now ? todaysBoundary : todaysBoundary + DAY;
+  expect(device.expiresAt.getTime(), "trust must lapse at the next IST day boundary").toBe(expected);
+
+  // Whatever the clock says when this runs, it must never reach the same hour tomorrow —
+  // that is what guarantees the next morning is challenged.
+  expect(device.expiresAt.getTime()).toBeLessThan(now + DAY);
 
   // The cookie must not be readable by scripts — it is a bearer token for skipping 2FA.
   const cookie = (await context.cookies()).find((c) => c.name === "pib_device");

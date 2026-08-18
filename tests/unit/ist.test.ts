@@ -3,7 +3,7 @@
  * is 23:59:59.999 IST on the fifteenth day after the Course Starting Amount was approved.
  */
 import { describe, expect, it } from "vitest";
-import { istDayStartUtc, istEndOfDay, istDateKey, daysSinceIst, downPaymentDeadline, IST_OFFSET_MS } from "@/lib/ist";
+import { istDayStartUtc, istNextDayBoundary, istDateKey, daysSinceIst, downPaymentDeadline, IST_OFFSET_MS } from "@/lib/ist";
 
 const DAY = 86_400_000;
 
@@ -65,32 +65,58 @@ describe("downPaymentDeadline — end of Day 15 (23:59:59.999 IST)", () => {
   });
 });
 
-describe("istEndOfDay — the last instant of the IST working day", () => {
-  // This is what 2FA trust hangs off: it must end with TODAY in India, so the first
-  // sign-in each morning is challenged again.
-  it("is 23:59:59.999 IST of the containing day", () => {
-    // 2026-08-18 10:00 IST == 2026-08-18 04:30 UTC.
-    const end = istEndOfDay(new Date("2026-08-18T04:30:00.000Z"));
-    // 23:59:59.999 IST on the 18th == 18:29:59.999 UTC the same date.
-    expect(end.toISOString()).toBe("2026-08-18T18:29:59.999Z");
+describe("istNextDayBoundary — when the working day ends for 2FA trust", () => {
+  // 2FA trust hangs off this. It must (a) survive a late evening in one piece and
+  // (b) always lapse before the next working morning. IST is UTC+5:30, so an 04:00 IST
+  // boundary is 22:30 UTC the previous date.
+  const CUTOFF = 4;
+
+  it("a daytime sign-in runs to 04:00 IST the NEXT day", () => {
+    // 2026-08-18 09:00 IST == 2026-08-18 03:30 UTC.
+    const end = istNextDayBoundary(new Date("2026-08-18T03:30:00.000Z"), CUTOFF);
+    // 04:00 IST on the 19th == 22:30 UTC on the 18th.
+    expect(end.toISOString()).toBe("2026-08-18T22:30:00.000Z");
   });
 
-  it("an evening sign-in still expires the SAME IST day, never the next", () => {
-    // 2026-08-18 22:00 IST == 2026-08-18 16:30 UTC — late, but still the 18th.
-    const end = istEndOfDay(new Date("2026-08-18T16:30:00.000Z"));
-    expect(end.toISOString()).toBe("2026-08-18T18:29:59.999Z");
+  it("a late-evening sign-in is NOT cut off at midnight — the whole point of the cutoff", () => {
+    // 2026-08-18 22:00 IST == 2026-08-18 16:30 UTC.
+    const end = istNextDayBoundary(new Date("2026-08-18T16:30:00.000Z"), CUTOFF);
+    expect(end.toISOString()).toBe("2026-08-18T22:30:00.000Z"); // 04:00 IST on the 19th
+    expect(end.getTime()).toBeGreaterThan(new Date("2026-08-18T18:30:00.000Z").getTime()); // past IST midnight
   });
 
-  it("just after IST midnight belongs to the NEW day, so trust runs a full day", () => {
-    // 2026-08-18 18:30:00.500Z == 00:00:00.5 IST on the 19th.
-    const end = istEndOfDay(new Date("2026-08-18T18:30:00.500Z"));
-    expect(end.toISOString()).toBe("2026-08-19T18:29:59.999Z");
+  it("just past midnight still belongs to the evening that is finishing", () => {
+    // 2026-08-19 01:00 IST == 2026-08-18 19:30 UTC.
+    const end = istNextDayBoundary(new Date("2026-08-18T19:30:00.000Z"), CUTOFF);
+    expect(end.toISOString()).toBe("2026-08-18T22:30:00.000Z"); // same 04:00 IST boundary
   });
 
-  it("never lands on the following IST day", () => {
-    for (const hour of [0, 5, 12, 18, 23]) {
-      const noonish = new Date(Date.UTC(2026, 7, 18, hour, 0, 0));
-      expect(istEndOfDay(noonish).getTime() - istDayStartUtc(noonish).getTime()).toBe(DAY - 1);
-    }
+  it("after the cutoff, the next morning gets a fresh full day", () => {
+    // 2026-08-19 05:00 IST == 2026-08-18 23:30 UTC — past the 04:00 boundary.
+    const end = istNextDayBoundary(new Date("2026-08-18T23:30:00.000Z"), CUTOFF);
+    expect(end.toISOString()).toBe("2026-08-19T22:30:00.000Z"); // 04:00 IST on the 20th
+  });
+
+  it("landing exactly on the boundary starts a new day rather than expiring instantly", () => {
+    const boundary = new Date("2026-08-18T22:30:00.000Z"); // exactly 04:00 IST on the 19th
+    expect(istNextDayBoundary(boundary, CUTOFF).toISOString()).toBe("2026-08-19T22:30:00.000Z");
+  });
+
+  it("a 9am sign-in always expires before the following 9am, so mornings are challenged", () => {
+    const nineAm = new Date("2026-08-18T03:30:00.000Z");
+    const nextNineAm = new Date(nineAm.getTime() + DAY);
+    expect(istNextDayBoundary(nineAm, CUTOFF).getTime()).toBeLessThan(nextNineAm.getTime());
+  });
+
+  it("cutoff 0 gives the plain midnight boundary", () => {
+    // 2026-08-18 09:00 IST → 00:00 IST on the 19th == 18:30 UTC on the 18th.
+    expect(istNextDayBoundary(new Date("2026-08-18T03:30:00.000Z"), 0).toISOString())
+      .toBe("2026-08-18T18:30:00.000Z");
+  });
+
+  it("clamps a nonsense cutoff instead of drifting into another day", () => {
+    const t = new Date("2026-08-18T03:30:00.000Z");
+    expect(istNextDayBoundary(t, 99).toISOString()).toBe(istNextDayBoundary(t, 23).toISOString());
+    expect(istNextDayBoundary(t, -5).toISOString()).toBe(istNextDayBoundary(t, 0).toISOString());
   });
 });

@@ -80,13 +80,15 @@ three with controlled override authority.
   Mandatory for `SUPER_ADMIN`, `DATA_MGMT_AUDITOR` and `FINANCE_REVIEWER` (the roles that see
   or decide on money); opt-in per user for the rest, so salespeople sign in with a password
   alone. The 6-digit code is emailed (there is no SMS path). After it is entered, that ONE
-  browser is remembered **until the end of the IST working day** (23:59:59.999) and only the
-  password is needed until then — so the first sign-in each morning is always challenged,
-  which a rolling 24-hour window would not do. Trust is a `TrustedDevice` row — the cookie is
-  just a hashed reference — so it is bound to one browser AND one user, and dies with any
-  password change, role change, deactivation or reset (all funnel through
-  `revokeAllUserSessions`). Config `two_fa_trust_scope`: `working_day` (default) or `off` to
-  demand the code every time; anything unrecognised fails safe to `off`.
+  browser is remembered **until the end of the IST working day — 04:00 IST, not midnight** —
+  and only the password is needed until then. The late boundary keeps an evening session in
+  one piece; because it is still well before office hours, the first sign-in each morning is
+  always challenged, which a rolling 24-hour window would not do. Trust is a `TrustedDevice`
+  row — the cookie is just a hashed reference — so it is bound to one browser AND one user,
+  and dies with any password change, role change, deactivation or reset (all funnel through
+  `revokeAllUserSessions`). Config: `two_fa_trust_scope` = `working_day` (default) or `off` to
+  demand the code every time (anything unrecognised fails safe to `off`), and
+  `two_fa_trust_day_end_hour_ist` = the boundary hour 0-23 (default 4; 0 = midnight).
 - Exactly **one active Super Admin** (BR-23). A second credential may exist only as a
   documented break-glass account; any login with it alerts the primary Super Admin and
   Rajesh.
