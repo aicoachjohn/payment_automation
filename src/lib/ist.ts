@@ -13,6 +13,15 @@ export function istDayStartUtc(d: Date): Date {
   return new Date(dayFloor - IST_OFFSET_MS);
 }
 
+/**
+ * UTC instant of 23:59:59.999 IST on the IST calendar day containing `d` — the last moment
+ * of "today" for a user in India. Used for trust that must end with the working day instead
+ * of rolling a fixed number of hours into the next morning.
+ */
+export function istEndOfDay(d: Date): Date {
+  return new Date(istDayStartUtc(d).getTime() + DAY_MS - 1);
+}
+
 /** `YYYY-MM-DD` of the IST calendar day (used in job idempotency keys). */
 export function istDateKey(d: Date): string {
   const s = new Date(d.getTime() + IST_OFFSET_MS);

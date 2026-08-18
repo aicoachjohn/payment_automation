@@ -16,6 +16,13 @@ export async function getConfigNumber(key: string, fallback: number): Promise<nu
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+/** Read a config value as a string, falling back if missing, blank or malformed. */
+export async function getConfigString(key: string, fallback: string): Promise<string> {
+  const row = await db.systemConfig.findUnique({ where: { key } });
+  const value = row?.value;
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
 /** Read the raw JSON config value (or null). For the settings console. */
 export async function getConfigValue(key: string): Promise<unknown> {
   const row = await db.systemConfig.findUnique({ where: { key } });

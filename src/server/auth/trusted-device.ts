@@ -4,9 +4,11 @@
  *
  * After a user clears 2FA, their browser is handed an opaque random token in an HttpOnly
  * cookie and a matching row is written here. While that row is live, signing in on THAT
- * browser needs only the password; the verification code is asked for again once the window
- * lapses. The window is config-driven (`two_fa_trusted_device_hours`, default 24) so the
- * Super Admin can shorten or effectively disable it without a code change (BR-13, NFR-16).
+ * browser needs only the password. Trust lapses at the END OF THE IST WORKING DAY, so the
+ * first sign-in each morning always asks for a code — a rolling 24-hour window would instead
+ * carry overnight and skip that morning. Config-driven via `two_fa_trust_scope`
+ * (`working_day` | `off`) so the Super Admin can switch it off without a code change
+ * (BR-13, NFR-16).
  *
  * The security properties that are deliberately preserved:
  *   · Only the SHA-256 hash is stored, so a leaked database row cannot be replayed.
@@ -20,15 +22,28 @@ import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/server/db";
 import { TRUSTED_DEVICE_COOKIE } from "@/lib/constants";
-import { getConfigNumber } from "@/server/services/system-config";
+import { getConfigString } from "@/server/services/system-config";
+import { istEndOfDay } from "@/lib/ist";
 
 function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
-/** How long one 2FA pass is honoured for. 0 (or less) disables the feature entirely. */
-export async function trustedDeviceWindowHours(): Promise<number> {
-  return getConfigNumber("two_fa_trusted_device_hours", 24);
+/**
+ * How far one 2FA pass carries. `working_day` (the default) means it lapses at 23:59:59.999
+ * IST the same day, so the first sign-in each morning always asks for a code — a fixed
+ * 24-hour window would instead roll overnight and skip that morning. `off` demands a code
+ * every time. Anything unrecognised is treated as `off`: an unreadable setting must fail
+ * toward asking, never toward trusting.
+ */
+export async function trustedDeviceScope(): Promise<"working_day" | "off"> {
+  const scope = await getConfigString("two_fa_trust_scope", "working_day");
+  return scope === "working_day" ? "working_day" : "off";
+}
+
+/** When trust granted `now` should lapse, or null if the feature is switched off. */
+export async function trustedDeviceExpiry(now: Date = new Date()): Promise<Date | null> {
+  return (await trustedDeviceScope()) === "working_day" ? istEndOfDay(now) : null;
 }
 
 /**
@@ -37,7 +52,7 @@ export async function trustedDeviceWindowHours(): Promise<number> {
  * Super Admin can see which devices are actually in use.
  */
 export async function hasTrustedDevice(userId: string): Promise<boolean> {
-  if ((await trustedDeviceWindowHours()) <= 0) return false;
+  if ((await trustedDeviceScope()) === "off") return false;
 
   const raw = (await cookies()).get(TRUSTED_DEVICE_COOKIE)?.value;
   if (!raw) return false;
@@ -60,8 +75,8 @@ export async function issueTrustedDevice(
   userId: string,
   ctx: { ip?: string | null; userAgent?: string | null } = {},
 ): Promise<void> {
-  const hours = await trustedDeviceWindowHours();
-  if (hours <= 0) return;
+  const expiresAt = await trustedDeviceExpiry();
+  if (!expiresAt) return;
 
   const store = await cookies();
   const previous = store.get(TRUSTED_DEVICE_COOKIE)?.value;
@@ -73,7 +88,6 @@ export async function issueTrustedDevice(
   }
 
   const raw = randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + hours * 3600_000);
   await db.trustedDevice.create({
     data: {
       userId,
@@ -84,12 +98,14 @@ export async function issueTrustedDevice(
     },
   });
 
+  // The cookie is told to die at the same instant as the row, so a browser closed overnight
+  // does not hold a token the server would refuse anyway.
   store.set(TRUSTED_DEVICE_COOKIE, raw, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: Math.floor(hours * 3600),
+    expires: expiresAt,
   });
 }
 

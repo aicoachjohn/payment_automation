@@ -3,7 +3,7 @@
  * is 23:59:59.999 IST on the fifteenth day after the Course Starting Amount was approved.
  */
 import { describe, expect, it } from "vitest";
-import { istDayStartUtc, istDateKey, daysSinceIst, downPaymentDeadline, IST_OFFSET_MS } from "@/lib/ist";
+import { istDayStartUtc, istEndOfDay, istDateKey, daysSinceIst, downPaymentDeadline, IST_OFFSET_MS } from "@/lib/ist";
 
 const DAY = 86_400_000;
 
@@ -62,5 +62,35 @@ describe("downPaymentDeadline — end of Day 15 (23:59:59.999 IST)", () => {
   it("00:05 IST on Day 16 is AFTER the deadline (overdue)", () => {
     const at0005Day16 = new Date(istDayStartUtc(anchor).getTime() + 16 * DAY + 5 * 60_000);
     expect(at0005Day16.getTime()).toBeGreaterThan(deadline.getTime());
+  });
+});
+
+describe("istEndOfDay — the last instant of the IST working day", () => {
+  // This is what 2FA trust hangs off: it must end with TODAY in India, so the first
+  // sign-in each morning is challenged again.
+  it("is 23:59:59.999 IST of the containing day", () => {
+    // 2026-08-18 10:00 IST == 2026-08-18 04:30 UTC.
+    const end = istEndOfDay(new Date("2026-08-18T04:30:00.000Z"));
+    // 23:59:59.999 IST on the 18th == 18:29:59.999 UTC the same date.
+    expect(end.toISOString()).toBe("2026-08-18T18:29:59.999Z");
+  });
+
+  it("an evening sign-in still expires the SAME IST day, never the next", () => {
+    // 2026-08-18 22:00 IST == 2026-08-18 16:30 UTC — late, but still the 18th.
+    const end = istEndOfDay(new Date("2026-08-18T16:30:00.000Z"));
+    expect(end.toISOString()).toBe("2026-08-18T18:29:59.999Z");
+  });
+
+  it("just after IST midnight belongs to the NEW day, so trust runs a full day", () => {
+    // 2026-08-18 18:30:00.500Z == 00:00:00.5 IST on the 19th.
+    const end = istEndOfDay(new Date("2026-08-18T18:30:00.500Z"));
+    expect(end.toISOString()).toBe("2026-08-19T18:29:59.999Z");
+  });
+
+  it("never lands on the following IST day", () => {
+    for (const hour of [0, 5, 12, 18, 23]) {
+      const noonish = new Date(Date.UTC(2026, 7, 18, hour, 0, 0));
+      expect(istEndOfDay(noonish).getTime() - istDayStartUtc(noonish).getTime()).toBe(DAY - 1);
+    }
   });
 });

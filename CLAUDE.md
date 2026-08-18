@@ -76,15 +76,17 @@ three with controlled override authority.
 
 - Finance is **read-only by design** (BR-18): `FINANCE_REVIEWER` has no write permission
   of any kind on payment data.
-- **Two-factor is per-role, and the code is asked for once per window — not every sign-in.**
+- **Two-factor is per-role, and the code is asked for once per working day — not every sign-in.**
   Mandatory for `SUPER_ADMIN`, `DATA_MGMT_AUDITOR` and `FINANCE_REVIEWER` (the roles that see
   or decide on money); opt-in per user for the rest, so salespeople sign in with a password
   alone. The 6-digit code is emailed (there is no SMS path). After it is entered, that ONE
-  browser is remembered for `two_fa_trusted_device_hours` (SystemConfig, default 24) and only
-  the password is needed until the window lapses. Trust is a `TrustedDevice` row — the cookie
-  is just a hashed reference — so it is bound to one browser AND one user, and dies with any
+  browser is remembered **until the end of the IST working day** (23:59:59.999) and only the
+  password is needed until then — so the first sign-in each morning is always challenged,
+  which a rolling 24-hour window would not do. Trust is a `TrustedDevice` row — the cookie is
+  just a hashed reference — so it is bound to one browser AND one user, and dies with any
   password change, role change, deactivation or reset (all funnel through
-  `revokeAllUserSessions`). Set the window to `0` to demand the code every time.
+  `revokeAllUserSessions`). Config `two_fa_trust_scope`: `working_day` (default) or `off` to
+  demand the code every time; anything unrecognised fails safe to `off`.
 - Exactly **one active Super Admin** (BR-23). A second credential may exist only as a
   documented break-glass account; any login with it alerts the primary Super Admin and
   Rajesh.

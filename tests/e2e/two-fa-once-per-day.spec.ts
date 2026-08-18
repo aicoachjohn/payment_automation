@@ -1,5 +1,5 @@
 /**
- * 2FA is asked for once per window, not on every sign-in (business decision — CLAUDE.md).
+ * 2FA is asked for once per WORKING DAY, not on every sign-in (business decision — CLAUDE.md).
  *
  * The security properties that MUST survive that relaxation are what this suite actually
  * guards: trust is bound to one browser and one user, it dies with a password change or a
@@ -56,7 +56,18 @@ test("the code is asked for on the first sign-in, then not again on the same bro
 
   // Same browser, same day → password only. This is the whole point of the change.
   const second = await signIn(page, FIN);
-  expect(second.askedForCode, "a second sign-in inside the window must NOT ask again").toBe(false);
+  expect(second.askedForCode, "a second sign-in the same day must NOT ask again").toBe(false);
+
+  // Trust must end with TODAY in India — not 24 hours later, which would skip tomorrow
+  // morning's challenge. 23:59:59.999 IST is 18:29:59.999 UTC.
+  const user = await prisma.user.findUniqueOrThrow({ where: { email: FIN.email } });
+  const device = await prisma.trustedDevice.findFirstOrThrow({
+    where: { userId: user.id, revokedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
+  const IST = 330 * 60_000, DAY = 86_400_000;
+  const endOfIstDay = Math.floor((Date.now() + IST) / DAY) * DAY - IST + DAY - 1;
+  expect(device.expiresAt.getTime(), "trust must lapse at the end of the IST day").toBe(endOfIstDay);
 
   // The cookie must not be readable by scripts — it is a bearer token for skipping 2FA.
   const cookie = (await context.cookies()).find((c) => c.name === "pib_device");
@@ -84,13 +95,13 @@ test("one user's trust never covers another user on a shared browser", async ({ 
   expect(other.askedForCode, "a shared machine must still challenge a different account").toBe(true);
 });
 
-test("the trust lapses once the window has passed", async ({ page }) => {
+test("the trust lapses once the working day has passed", async ({ page }) => {
   await signIn(page, FIN);
   await signOut(page);
   expect((await signIn(page, FIN)).askedForCode).toBe(false);
   await signOut(page);
 
-  // Age the token past its expiry rather than waiting 24 hours.
+  // Age the token past its expiry rather than waiting for midnight IST.
   const user = await prisma.user.findUniqueOrThrow({ where: { email: FIN.email } });
   await prisma.trustedDevice.updateMany({
     where: { userId: user.id, revokedAt: null },
@@ -98,7 +109,7 @@ test("the trust lapses once the window has passed", async ({ page }) => {
   });
 
   const after = await signIn(page, FIN);
-  expect(after.askedForCode, "an expired window must ask for the code again").toBe(true);
+  expect(after.askedForCode, "a lapsed working day must ask for the code again").toBe(true);
 });
 
 test("a deactivated user cannot ride a remembered browser back in", async ({ page }) => {
