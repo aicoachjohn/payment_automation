@@ -28,6 +28,12 @@ three with controlled override authority.
    editable figure. Never accept a total from the browser. (BR-28, FR-REC-06)
 4. **Balance definition.** Balance = `final_approved_fee` minus the sum of **APPROVED**
    received amounts. Pending and rejected payments never reduce the balance. (BR-22)
+   A **booking advance is the normal case**, not an exception: a learner pays part of the fee
+   to hold a seat and the remainder simply stays outstanding. Paying **less** than the
+   scheduled instalment is therefore recorded without demanding a written reason — the system
+   stamps its own "Advance / part payment" note so Nandhiya still sees why the figure differs.
+   Paying **more** than expected is the risky direction and still requires one (FR-SAL-44).
+   Nothing here is written off; the balance is still computed from approved payments.
 5. **Everything is audited, append-only.** Every state-changing action writes an
    immutable `AuditTrail` entry with actor, role, entity, field, previous value, new
    value, timestamp and IP. Audit entries are append-only — no update, no delete, for

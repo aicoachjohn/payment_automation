@@ -36,6 +36,10 @@ afterAll(async () => {
   if (createdLeadIds.length) {
     await prisma.notification.deleteMany({ where: { relatedEntityId: { in: createdLeadIds } } });
     await prisma.leadIntakeInvite.deleteMany({ where: { createdLeadId: { in: createdLeadIds } } });
+    // A self-filled lead is auto-priced on submit, so it owns an enrollment — that has to go
+    // first, or the lead delete fails on the foreign key and leaves rows behind, which then
+    // trips the duplicate-lead guard on the next run.
+    await prisma.enrollment.deleteMany({ where: { leadId: { in: createdLeadIds } } });
     await prisma.lead.deleteMany({ where: { id: { in: createdLeadIds } } });
   }
   if (tokenHashes.length) await prisma.leadIntakeInvite.deleteMany({ where: { tokenHash: { in: tokenHashes } } });

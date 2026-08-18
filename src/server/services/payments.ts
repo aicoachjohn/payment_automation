@@ -12,7 +12,7 @@ import { writeAudit } from "@/server/audit";
 import { requirePermission, type Actor } from "@/server/auth/permissions";
 import { getLeadForActor, advanceLeadStatus } from "@/server/services/leads";
 import { getConfigNumber } from "@/server/services/system-config";
-import { round, eq, calculateBalance, type MoneyInput } from "@/server/money";
+import { round, eq, lt, formatINR, calculateBalance, type MoneyInput } from "@/server/money";
 import { derivePaymentType, expectedAmountFor, clearsBalance } from "@/server/services/payment-rules";
 import { runOcr, type OcrFields } from "@/server/ocr";
 import { validateProofFile } from "@/server/storage/validate";
@@ -158,11 +158,28 @@ export async function capturePayment(actor: Actor, leadId: string, input: Captur
   const bringsToZero = clearsBalance(outstanding, input.receivedAmount);
   const paymentType = derivePaymentType(paymentNumber, enrollment.courseStartedFlag, bringsToZero);
 
-  // Variance: warn-not-block, but a reason is mandatory when it differs (FR-SAL-44).
+  // Variance (FR-SAL-44). A learner normally books with an ADVANCE rather than the whole
+  // scheduled instalment, so paying LESS than expected is routine, not an exception: it is
+  // recorded and labelled as a part payment without stopping the salesperson to type a
+  // reason. The balance is unaffected by this — it is still computed from APPROVED payments
+  // (BR-22), so nothing is written off; the remainder simply stays outstanding.
+  //
+  // Paying MORE than expected is the risky direction (over-collection, BR-14) and still
+  // demands a written reason.
   const hasVariance = !eq(expectedAmount, input.receivedAmount);
-  if (hasVariance && !input.varianceReason?.trim()) {
-    throw new PaymentError("The received amount differs from the expected amount — a reason is required.");
+  const isAdvance = hasVariance && lt(input.receivedAmount, expectedAmount);
+  if (hasVariance && !isAdvance && !input.varianceReason?.trim()) {
+    throw new PaymentError(
+      "The received amount is more than expected — please add a reason before submitting.",
+    );
   }
+  // Nandhiya must still see WHY the figure differs, so an unexplained advance carries a
+  // system-written note rather than a blank (FR-SAL-44's intent, without the friction).
+  const varianceNote = input.varianceReason?.trim()
+    ? input.varianceReason.trim()
+    : isAdvance
+      ? `Advance / part payment — ${formatINR(round(input.receivedAmount))} of ${formatINR(expectedAmount)} expected.`
+      : null;
 
   // Probable duplicate — same lead, same amount, same date within the window (FR-REC-05).
   // A non-blocking WARNING at submission (Nandhiya sees it again at approval).
@@ -191,7 +208,7 @@ export async function capturePayment(actor: Actor, leadId: string, input: Captur
           submittedBy: actor.userId,
           manualEntryNoOcr: input.manualEntryNoOcr,
           fieldSources,
-          varianceReason: hasVariance ? input.varianceReason!.trim() : null,
+          varianceReason: hasVariance ? varianceNote : null,
         },
       });
       await tx.paymentProof.create({
@@ -355,6 +372,8 @@ export async function listPaymentsForLead(actor: Actor, leadId: string) {
       manualEntryNoOcr: p.manualEntryNoOcr,
       delegatedAudit: p.delegatedAudit,
       varianceReason: p.varianceReason,
+      // Decided here, with Decimal maths — the browser must never compare money (BR-29).
+      isPartPayment: lt(p.receivedAmount, p.expectedAmount),
       proofId: p.proofs[0]?.id ?? null,
       proofVersions: p.proofs.length,
     })),

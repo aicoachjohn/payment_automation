@@ -15,6 +15,7 @@ import { writeAudit } from "@/server/audit";
 import { requirePermission, type Actor } from "@/server/auth/permissions";
 import { checkDuplicate, advanceLeadStatus, getLeadForActor } from "@/server/services/leads";
 import { stageProof, capturePayment, type UploadedProof } from "@/server/services/payments";
+import { calculateFee } from "@/server/services/pricing";
 import { notifyUser } from "@/server/notifications";
 import { INTAKE_LINK } from "@/lib/constants";
 
@@ -94,6 +95,16 @@ export async function submitIntake(
     }
   }
 
+  // Price the lead's own course choice up front (a Pricing Master read, so outside the txn).
+  // If no effective price exists for that program/plan the lead is still created — the
+  // salesperson just picks the course by hand, exactly as before.
+  let quote: Awaited<ReturnType<typeof calculateFee>> | null = null;
+  try {
+    quote = await calculateFee({ program: data.interestedProgram, plan: data.interestedPlan, comboMode: null });
+  } catch {
+    quote = null;
+  }
+
   let newLeadId = "";
   await db.$transaction(async (tx) => {
     const lead = await tx.lead.create({
@@ -146,6 +157,39 @@ export async function submitIntake(
         },
       });
     }
+    // Price the enrollment straight from the program + plan the lead chose (both mandatory
+    // on the intake form), so the salesperson does not have to re-select the course before
+    // confirming a payment. The fee is deliberately left UNLOCKED — the salesperson can
+    // still correct the course right up until the first payment is approved.
+    if (quote) {
+      await tx.enrollment.create({
+        data: {
+          leadId: lead.id,
+          program: data.interestedProgram,
+          plan: data.interestedPlan,
+          pricingId: quote.pricingId,
+          standardFee: quote.standardFee.toFixed(2),
+          baseFee: quote.baseFee.toFixed(2),
+          gstAmount: quote.gstAmount.toFixed(2),
+          gstPercent: quote.gstPercent.toFixed(2),
+          finalApprovedFee: quote.standardFee.toFixed(2),
+        },
+      });
+      await writeAudit(tx, {
+        entityType: "Lead",
+        entityId: lead.id,
+        action: "SELECT_COURSE",
+        changes: [
+          { field: "program", oldValue: null, newValue: data.interestedProgram },
+          { field: "plan", oldValue: null, newValue: data.interestedPlan },
+          { field: "standardFee", oldValue: null, newValue: quote.standardFee.toFixed(2) },
+          { field: "source", oldValue: null, newValue: "auto-priced from the lead's own intake selection" },
+        ],
+        actor,
+        ip,
+      });
+    }
+
     await tx.leadIntakeInvite.update({
       where: { id: invite.id },
       data: { usedAt: new Date(), createdLeadId: lead.id, ipAddress: ip ?? null },

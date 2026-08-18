@@ -13,6 +13,8 @@ export interface PaymentRow {
   id: string; paymentNumber: number; paymentType: string; expectedAmount: string;
   receivedAmount: string; paymentDate: string; paymentMethod: string; transactionId: string;
   auditStatus: string; manualEntryNoOcr: boolean; varianceReason: string | null;
+  /** Server-computed (Decimal): received < expected, i.e. a routine booking advance. */
+  isPartPayment: boolean;
   proofId: string | null; proofVersions: number; delegatedAudit: boolean;
 }
 
@@ -48,7 +50,18 @@ export function PaymentPanel({
                 <tr key={p.id} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="px-3 py-2">{p.paymentNumber}</td>
                   <td className="px-3 py-2">{p.paymentType}{p.manualEntryNoOcr && <span className="ml-1 rounded bg-amber-100 px-1 text-xs text-amber-800">Manual · No OCR</span>}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{formatINR(p.receivedAmount)}{p.varianceReason && <span className="ml-1 rounded bg-amber-100 px-1 text-xs text-amber-800" title={p.varianceReason}>variance</span>}</td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {formatINR(p.receivedAmount)}
+                    {/* Paying less than expected is a routine booking advance — say so
+                        plainly. Only MORE than expected is worth an amber flag. */}
+                    {p.varianceReason && (
+                      p.isPartPayment ? (
+                        <span className="ml-1 rounded bg-slate-100 px-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={p.varianceReason}>part payment</span>
+                      ) : (
+                        <span className="ml-1 rounded bg-amber-100 px-1 text-xs text-amber-800" title={p.varianceReason}>variance</span>
+                      )
+                    )}
+                  </td>
                   <td className="px-3 py-2 font-mono text-xs">{p.transactionId}</td>
                   <td className="px-3 py-2 text-xs">{formatDate(p.paymentDate)}</td>
                   <td className="px-3 py-2 text-xs">{p.auditStatus}{p.delegatedAudit && <span className="ml-1 rounded bg-violet-100 px-1 text-violet-800 dark:bg-violet-950 dark:text-violet-300" title="Audited by Super Admin (delegated)">delegated</span>}</td>
@@ -174,7 +187,7 @@ function CaptureForm({ leadId, onDone }: { leadId: string; onDone: () => void })
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-slate-500">Reason (only if amount differs from expected)</label>
+              <label className="text-xs text-slate-500">Reason (only needed if MORE than expected was received)</label>
               <input className={input} value={varianceReason} onChange={(e) => setVarianceReason(e.target.value)} />
             </div>
             <button className={btn} disabled={pending} onClick={submit}>{pending ? "Submitting…" : "Submit to audit"}</button>

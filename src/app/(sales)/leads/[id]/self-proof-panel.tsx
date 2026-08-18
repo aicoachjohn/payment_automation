@@ -16,28 +16,33 @@ function fromDateInput(v: string) { return v ? new Date(`${v}T00:00:00.000Z`).to
 /**
  * The learner uploaded these payment proofs on the self-intake form. The salesperson VERIFIES
  * each against the screenshot (BR-20) and confirms it into a real payment → PENDING_AUDIT.
- * Confirming needs the fee locked first (generate the draft).
+ * Confirming needs the fee to be KNOWN, not locked — a self-filled lead is already priced
+ * from the course it chose on the intake form, so this is usually a one-click confirmation.
+ * Learners normally book with an advance, so a part payment needs no explanation here.
  */
-export function SelfProofPanel({ leadId, proofs, feeLocked }: { leadId: string; proofs: HeldProof[]; feeLocked: boolean }) {
+export function SelfProofPanel({ leadId, proofs, feeKnown }: { leadId: string; proofs: HeldProof[]; feeKnown: boolean }) {
   return (
     <div className="space-y-4 rounded-lg border border-brand-blue/40 bg-brand-blue-50/50 p-5 dark:border-slate-700 dark:bg-slate-900">
       <div>
         <h2 className="text-lg font-semibold text-brand-navy dark:text-slate-100">Learner-submitted payment proof{proofs.length > 1 ? "s" : ""}</h2>
-        <p className="text-xs text-slate-500">The lead uploaded {proofs.length} proof{proofs.length > 1 ? "s" : ""} on the intake form. Verify each against the screenshot and confirm it.</p>
+        <p className="text-xs text-slate-500">
+          The lead uploaded {proofs.length} proof{proofs.length > 1 ? "s" : ""} on the intake form. Check each against the
+          screenshot and confirm. A booking advance is normal — just record what they actually paid.
+        </p>
       </div>
-      {!feeLocked && (
+      {!feeKnown && (
         <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-          Select the course and <strong>generate the payment draft</strong> above first — then you can confirm this payment.
+          Select the course above first — then you can confirm this payment.
         </p>
       )}
       {proofs.map((p) => (
-        <ProofCard key={p.id} leadId={leadId} proof={p} feeLocked={feeLocked} />
+        <ProofCard key={p.id} leadId={leadId} proof={p} feeKnown={feeKnown} />
       ))}
     </div>
   );
 }
 
-function ProofCard({ leadId, proof, feeLocked }: { leadId: string; proof: HeldProof; feeLocked: boolean }) {
+function ProofCard({ leadId, proof, feeKnown }: { leadId: string; proof: HeldProof; feeKnown: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +58,7 @@ function ProofCard({ leadId, proof, feeLocked }: { leadId: string; proof: HeldPr
 
   const need = (k: keyof typeof conf) => proof.ocr[k as keyof typeof proof.ocr] != null;
   const ready =
-    feeLocked && f.receivedAmount && f.paymentDate && f.transactionId && f.paymentMethod &&
+    feeKnown && f.receivedAmount && f.paymentDate && f.transactionId && f.paymentMethod &&
     (["receivedAmount", "paymentDate", "transactionId", "paymentMethod"] as const).every((k) => !need(k) || conf[k]);
 
   function confirm() {
@@ -102,7 +107,7 @@ function ProofCard({ leadId, proof, feeLocked }: { leadId: string; proof: HeldPr
           </ConfirmField>
         </div>
         <div className="space-y-1">
-          <label className={labelCls}>Note / reason (for a part payment or any variance)</label>
+          <label className={labelCls}>Note (optional)</label>
           <input className={input} value={f.varianceReason} onChange={(e) => setF({ ...f, varianceReason: e.target.value })} />
         </div>
         <button

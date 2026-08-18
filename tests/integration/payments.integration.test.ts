@@ -121,16 +121,35 @@ describe("#2 — duplicate Transaction ID is rejected and names the conflicting 
   });
 });
 
-describe("#3 — variance warns and requires a reason (FR-SAL-44)", () => {
-  it("received != expected with no reason → rejected; with a reason → recorded", async () => {
+describe("#3 — variance: an advance is routine, over-collection is not (FR-SAL-44)", () => {
+  // Fee 89,999 on a 50/50 schedule, so payment #1 expects 44,999.50.
+  it("UNDER expected with no reason → recorded, with a system-written note", async () => {
     const id = await readyLead();
     const proof = await uploadProof(mathiew, id, { bytes: receiptJpg("30,000", "TXNP6VAR001"), originalFilename: "p.jpg" });
-    await expect(
-      capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR001", { receivedAmount: "30000" })),
-    ).rejects.toThrow(/reason is required/i);
-    const res = await capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR001", { receivedAmount: "30000", varianceReason: "Partial holding amount" }));
+    // A learner booking with a ₹30,000 advance must not stop the salesperson for an essay.
+    const res = await capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR001", { receivedAmount: "30000" }));
+    const p = await prisma.payment.findUniqueOrThrow({ where: { id: res.paymentId } });
+    // Nandhiya is still told why it differs — the system writes it, not the salesperson.
+    expect(p.varianceReason).toMatch(/advance \/ part payment/i);
+  });
+
+  it("keeps the salesperson's own wording when they do explain it", async () => {
+    const id = await readyLead();
+    const proof = await uploadProof(mathiew, id, { bytes: receiptJpg("30,000", "TXNP6VAR002"), originalFilename: "p.jpg" });
+    const res = await capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR002", { receivedAmount: "30000", varianceReason: "Partial holding amount" }));
     const p = await prisma.payment.findUniqueOrThrow({ where: { id: res.paymentId } });
     expect(p.varianceReason).toBe("Partial holding amount");
+  });
+
+  it("OVER expected with no reason → still rejected (over-collection risk)", async () => {
+    const id = await readyLead();
+    const proof = await uploadProof(mathiew, id, { bytes: receiptJpg("50,000", "TXNP6VAR003"), originalFilename: "p.jpg" });
+    await expect(
+      capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR003", { receivedAmount: "50000" })),
+    ).rejects.toThrow(/more than expected/i);
+    const res = await capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR003", { receivedAmount: "50000", varianceReason: "Learner paid ahead" }));
+    const p = await prisma.payment.findUniqueOrThrow({ where: { id: res.paymentId } });
+    expect(p.varianceReason).toBe("Learner paid ahead");
   });
 });
 

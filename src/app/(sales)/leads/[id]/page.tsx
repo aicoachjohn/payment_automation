@@ -62,6 +62,12 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       : null,
   };
 
+  // A payment can be recorded as soon as the fee is KNOWN — locking it is what generating
+  // the draft does, but capturePayment only needs finalApprovedFee. Leads that self-filled
+  // the intake form are already priced from their own course choice, so the salesperson can
+  // confirm their payment proof straight away.
+  const feeKnown = detail.enrollment?.finalApprovedFee != null;
+
   const [blockers, versions, config, paymentData, followUps, selfProofs] = await Promise.all([
     draftGenerationBlockers(id, actor),
     listDraftVersions(actor, id),
@@ -87,9 +93,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         />
       )}
       {selfProofs.length > 0 && (
-        <SelfProofPanel leadId={id} proofs={selfProofs} feeLocked={Boolean(detail.enrollment?.feeLocked)} />
+        <SelfProofPanel leadId={id} proofs={selfProofs} feeKnown={feeKnown} />
       )}
-      {detail.enrollment?.feeLocked && (
+      {feeKnown && (
         <PaymentPanel
           leadId={id}
           payments={paymentData.payments}
