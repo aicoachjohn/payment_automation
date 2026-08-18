@@ -127,7 +127,7 @@ describe("a lead who books with an advance", () => {
     expect(afterApproval.balance).toBe((Number(fee) - 5000).toFixed(2));
   });
 
-  it("still demands a reason when MORE than expected is received (over-collection)", async () => {
+  it("still demands a reason when MORE than the balance is received (over-collection)", async () => {
     const leadId = await intakeWithProof("adv3@example.com", "9700000103", "Paytm\n₹5,000\nPaid\nRef No: ADV20260818C");
     const held = await listSelfProofs(mathiew, leadId);
     const fee = (await prisma.enrollment.findUniqueOrThrow({ where: { leadId } })).finalApprovedFee!.toString();
@@ -142,7 +142,7 @@ describe("a lead who books with an advance", () => {
         transactionId: "ADV20260818C",
         confirmations: { receivedAmount: true, paymentDate: true, transactionId: true, paymentMethod: true },
       }),
-    ).rejects.toThrow(/more than expected/i);
+    ).rejects.toThrow(/more than the learner still owes/i);
   });
 
   it("falls back to manual course selection for the Combo Pack, which needs a shot mode", async () => {

@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { PaymentMethod } from "@prisma/client";
 import { formatINR, formatDate } from "@/lib/format";
+import { OVER_COLLECTION_REASON_REQUIRED } from "@/lib/constants";
 import { ProofViewer } from "@/components/shared/proof-viewer";
 import { uploadProofAction, capturePaymentAction } from "@/app/(sales)/leads/payment-actions";
 
@@ -85,6 +86,9 @@ function CaptureForm({ leadId, onDone }: { leadId: string; onDone: () => void })
   const [values, setValues] = useState<Record<OcrField, string>>({ receivedAmount: "", paymentDate: "", transactionId: "", paymentMethod: PaymentMethod.UPI });
   const [confirmed, setConfirmed] = useState<Record<OcrField, boolean>>({ receivedAmount: false, paymentDate: false, transactionId: false, paymentMethod: false });
   const [varianceReason, setVarianceReason] = useState("");
+  // Set when the server refuses because this takes more than the learner owes.
+  const [reasonRequired, setReasonRequired] = useState(false);
+  const reasonId = useId();
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [pending, start] = useTransition();
@@ -137,7 +141,14 @@ function CaptureForm({ leadId, onDone }: { leadId: string; onDone: () => void })
         varianceReason: varianceReason || undefined,
         manualEntryNoOcr: !proof.ocr.ok,
       });
-      if (res?.serverError) return setError(res.serverError);
+      if (res?.serverError) {
+        // Send the salesperson to the field that needs filling in, not a floating red line.
+        if (res.serverError === OVER_COLLECTION_REASON_REQUIRED) {
+          setReasonRequired(true);
+          return setError(null);
+        }
+        return setError(res.serverError);
+      }
       if (res?.validationErrors) return setError("Please check the fields — proof, amount, date and Transaction ID are required.");
       if (res?.data?.ok) {
         setProof(null); setPreviewUrl(null); setVarianceReason("");
@@ -187,8 +198,18 @@ function CaptureForm({ leadId, onDone }: { leadId: string; onDone: () => void })
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-slate-500">Reason (only needed if MORE than expected was received)</label>
-              <input className={input} value={varianceReason} onChange={(e) => setVarianceReason(e.target.value)} />
+              <label htmlFor={reasonId} className={reasonRequired ? "text-xs font-semibold text-red-600 dark:text-red-400" : "text-xs text-slate-500"}>
+                {reasonRequired ? "Reason — required *" : "Note (optional)"}
+              </label>
+              <input
+                id={reasonId}
+                className={reasonRequired ? `${input.replace("border-slate-300", "border-red-500 dark:border-red-500")} focus:border-red-500` : input}
+                aria-invalid={reasonRequired || undefined}
+                placeholder={reasonRequired ? "Why is more than the balance being taken?" : undefined}
+                value={varianceReason}
+                onChange={(e) => setVarianceReason(e.target.value)}
+              />
+              {reasonRequired && <p className="text-xs text-red-600 dark:text-red-400">{OVER_COLLECTION_REASON_REQUIRED}</p>}
             </div>
             <button className={btn} disabled={pending} onClick={submit}>{pending ? "Submitting…" : "Submit to audit"}</button>
           </div>

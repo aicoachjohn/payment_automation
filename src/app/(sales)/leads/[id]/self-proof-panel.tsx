@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { PaymentMethod } from "@prisma/client";
 import { confirmSelfProofAction } from "@/app/(sales)/leads/payment-actions";
 import type { HeldProof } from "@/server/services/lead-intake-link";
+import { OVER_COLLECTION_REASON_REQUIRED } from "@/lib/constants";
 
 const input =
   "w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-brand-blue dark:border-slate-700 dark:bg-slate-800";
@@ -55,6 +56,10 @@ function ProofCard({ leadId, proof, feeKnown }: { leadId: string; proof: HeldPro
     varianceReason: "",
   });
   const [conf, setConf] = useState({ receivedAmount: false, paymentDate: false, transactionId: false, paymentMethod: false });
+  // Set when the server refuses because this takes more than the learner owes. Cleared as
+  // soon as they change the amount, since the objection may no longer apply.
+  const [reasonRequired, setReasonRequired] = useState(false);
+  const reasonId = useId();
 
   const need = (k: keyof typeof conf) => proof.ocr[k as keyof typeof proof.ocr] != null;
   const ready =
@@ -69,7 +74,15 @@ function ProofCard({ leadId, proof, feeKnown }: { leadId: string; proof: HeldPro
         receivedAmount: f.receivedAmount, paymentDate: f.paymentDate, paymentMethod: f.paymentMethod,
         transactionId: f.transactionId, confirmations: conf, varianceReason: f.varianceReason || undefined,
       });
-      if (res?.serverError) return setError(res.serverError);
+      if (res?.serverError) {
+        // Point at the field that actually needs filling in, rather than leaving a red line
+        // floating above a box still labelled "optional".
+        if (res.serverError === OVER_COLLECTION_REASON_REQUIRED) {
+          setReasonRequired(true);
+          return setError(null);
+        }
+        return setError(res.serverError);
+      }
       if (res?.validationErrors) return setError("Please check the fields and tick each confirmed value.");
       if (res?.data?.ok) router.refresh();
     });
@@ -92,7 +105,11 @@ function ProofCard({ leadId, proof, feeKnown }: { leadId: string; proof: HeldPro
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <ConfirmField l="Amount received" ocr={need("receivedAmount")} checked={conf.receivedAmount} onCheck={(v) => setConf({ ...conf, receivedAmount: v })}>
-            <input className={input} value={f.receivedAmount} onChange={(e) => setF({ ...f, receivedAmount: e.target.value })} />
+            <input
+              className={input}
+              value={f.receivedAmount}
+              onChange={(e) => { setReasonRequired(false); setF({ ...f, receivedAmount: e.target.value }); }}
+            />
           </ConfirmField>
           <ConfirmField l="Transaction ID" ocr={need("transactionId")} checked={conf.transactionId} onCheck={(v) => setConf({ ...conf, transactionId: v })}>
             <input className={input} value={f.transactionId} onChange={(e) => setF({ ...f, transactionId: e.target.value })} />
@@ -107,8 +124,20 @@ function ProofCard({ leadId, proof, feeKnown }: { leadId: string; proof: HeldPro
           </ConfirmField>
         </div>
         <div className="space-y-1">
-          <label className={labelCls}>Note (optional)</label>
-          <input className={input} value={f.varianceReason} onChange={(e) => setF({ ...f, varianceReason: e.target.value })} />
+          <label htmlFor={reasonId} className={reasonRequired ? "text-xs font-semibold text-red-600 dark:text-red-400" : labelCls}>
+            {reasonRequired ? "Reason — required *" : "Note (optional)"}
+          </label>
+          <input
+            id={reasonId}
+            className={reasonRequired ? `${input.replace("border-slate-300", "border-red-500 dark:border-red-500")} focus:border-red-500` : input}
+            aria-invalid={reasonRequired || undefined}
+            placeholder={reasonRequired ? "Why is more than the balance being taken?" : undefined}
+            value={f.varianceReason}
+            onChange={(e) => setF({ ...f, varianceReason: e.target.value })}
+          />
+          {reasonRequired && (
+            <p className="text-xs text-red-600 dark:text-red-400">{OVER_COLLECTION_REASON_REQUIRED}</p>
+          )}
         </div>
         <button
           type="button"

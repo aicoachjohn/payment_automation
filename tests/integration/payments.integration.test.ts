@@ -141,15 +141,27 @@ describe("#3 — variance: an advance is routine, over-collection is not (FR-SAL
     expect(p.varianceReason).toBe("Partial holding amount");
   });
 
-  it("OVER expected with no reason → still rejected (over-collection risk)", async () => {
+  it("ABOVE the instalment but within the balance → recorded, no reason needed", async () => {
     const id = await readyLead();
     const proof = await uploadProof(mathiew, id, { bytes: receiptJpg("50,000", "TXNP6VAR003"), originalFilename: "p.jpg" });
-    await expect(
-      capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR003", { receivedAmount: "50000" })),
-    ).rejects.toThrow(/more than expected/i);
-    const res = await capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR003", { receivedAmount: "50000", varianceReason: "Learner paid ahead" }));
+    // 50,000 exceeds the 44,999.50 instalment but is well inside the 89,999 owed — the
+    // learner is simply paying ahead, which is no more suspicious than paying an advance.
+    const res = await capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR003", { receivedAmount: "50000" }));
     const p = await prisma.payment.findUniqueOrThrow({ where: { id: res.paymentId } });
-    expect(p.varianceReason).toBe("Learner paid ahead");
+    expect(p.receivedAmount.toString()).toBe("50000");
+  });
+
+  it("ABOVE the outstanding balance with no reason → rejected (over-collection)", async () => {
+    const id = await readyLead();
+    const proof = await uploadProof(mathiew, id, { bytes: receiptJpg("95,000", "TXNP6VAR004"), originalFilename: "p.jpg" });
+    // 95,000 against a 89,999 fee is the one genuinely risky case (BR-14). Nandhiya blocks
+    // it at approval (FR-REC-04); capture still insists the salesperson says why.
+    await expect(
+      capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR004", { receivedAmount: "95000" })),
+    ).rejects.toThrow(/more than the learner still owes/i);
+    const res = await capturePayment(mathiew, id, captureInput(proof, "TXNP6VAR004", { receivedAmount: "95000", varianceReason: "Learner overpaid; refund agreed" }));
+    const p = await prisma.payment.findUniqueOrThrow({ where: { id: res.paymentId } });
+    expect(p.varianceReason).toBe("Learner overpaid; refund agreed");
   });
 });
 

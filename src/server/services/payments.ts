@@ -12,7 +12,8 @@ import { writeAudit } from "@/server/audit";
 import { requirePermission, type Actor } from "@/server/auth/permissions";
 import { getLeadForActor, advanceLeadStatus } from "@/server/services/leads";
 import { getConfigNumber } from "@/server/services/system-config";
-import { round, eq, lt, formatINR, calculateBalance, type MoneyInput } from "@/server/money";
+import { OVER_COLLECTION_REASON_REQUIRED } from "@/lib/constants";
+import { round, eq, lt, gt, formatINR, calculateBalance, type MoneyInput } from "@/server/money";
 import { derivePaymentType, expectedAmountFor, clearsBalance } from "@/server/services/payment-rules";
 import { runOcr, type OcrFields } from "@/server/ocr";
 import { validateProofFile } from "@/server/storage/validate";
@@ -164,14 +165,15 @@ export async function capturePayment(actor: Actor, leadId: string, input: Captur
   // reason. The balance is unaffected by this — it is still computed from APPROVED payments
   // (BR-22), so nothing is written off; the remainder simply stays outstanding.
   //
-  // Paying MORE than expected is the risky direction (over-collection, BR-14) and still
-  // demands a written reason.
+  // A written reason is demanded for ONE case only: taking MORE than the learner actually
+  // owes (over-collection, BR-14 — which Nandhiya then blocks at approval, FR-REC-04).
+  // Paying more than a single scheduled instalment but still within the balance is just
+  // paying ahead, and is as routine as paying an advance, so it is not questioned either.
   const hasVariance = !eq(expectedAmount, input.receivedAmount);
   const isAdvance = hasVariance && lt(input.receivedAmount, expectedAmount);
-  if (hasVariance && !isAdvance && !input.varianceReason?.trim()) {
-    throw new PaymentError(
-      "The received amount is more than expected — please add a reason before submitting.",
-    );
+  const isOverCollection = gt(input.receivedAmount, outstanding);
+  if (isOverCollection && !input.varianceReason?.trim()) {
+    throw new PaymentError(OVER_COLLECTION_REASON_REQUIRED);
   }
   // Nandhiya must still see WHY the figure differs, so an unexplained advance carries a
   // system-written note rather than a blank (FR-SAL-44's intent, without the friction).

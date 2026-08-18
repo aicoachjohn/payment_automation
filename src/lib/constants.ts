@@ -49,3 +49,12 @@ export const RATE_LIMITS = {
 
 /** Public self-intake link (a salesperson shares it; the lead self-fills). */
 export const INTAKE_LINK = { TTL_DAYS: 7 } as const;
+
+/**
+ * The one payment message the UI must recognise exactly, so it can point the salesperson at
+ * the field that actually needs filling in instead of showing a floating red line. Shared by
+ * the server (which throws it) and the confirm panels (which match it) so the two can never
+ * drift apart.
+ */
+export const OVER_COLLECTION_REASON_REQUIRED =
+  "This is more than the learner still owes — add a reason before submitting.";
