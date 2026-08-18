@@ -109,6 +109,32 @@ describe("Verify #6 — a blocked handover names the exact missing field", () =>
     expect(msg).toContain(`payment #${approved.paymentNumber}`);
   });
 
+  it("a pending payment ABOVE the fee is named as unapprovable, not left as 'waiting for audit'", async () => {
+    // The trap this catches: a payment larger than the fee can never be approved (FR-REC-04),
+    // so listing only "at least one approved payment" tells the salesperson to wait for
+    // something that will never come. The blocker must name the payment and the way out.
+    const s = await seedFullyPaid();
+    const e = await prisma.enrollment.findUniqueOrThrow({ where: { id: s.enrollmentId } });
+    const fee = Number(e.finalApprovedFee);
+
+    // Reset to a single pending payment worth more than the whole fee.
+    await prisma.payment.updateMany({ where: { enrollmentId: s.enrollmentId }, data: { locked: false } });
+    await prisma.payment.updateMany({ where: { enrollmentId: s.enrollmentId }, data: { auditStatus: AuditStatus.REJECTED } });
+    const first = await prisma.payment.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId }, orderBy: { paymentNumber: "asc" } });
+    await prisma.payment.update({
+      where: { id: first.id },
+      data: { auditStatus: AuditStatus.PENDING_AUDIT, receivedAmount: (fee + 5000).toFixed(2) },
+    });
+
+    const snap = await buildHandoverSnapshot(s.enrollmentId);
+    const blocker = snap.missing.find((m) => /cannot be approved as it stands/i.test(m));
+    console.log(`  [#6c] over-fee blocker -> "${blocker}"`);
+    expect(snap.complete).toBe(false);
+    expect(blocker, "the blocker must name the unapprovable payment").toBeTruthy();
+    expect(blocker).toContain(`Payment #${first.paymentNumber}`);
+    expect(blocker, "and point at the remedy that actually exists").toMatch(/unlock the fee/i);
+  });
+
   it("missing commencing date → error names 'Commencing date'", async () => {
     const s = await seedFullyPaid();
     await prisma.enrollment.update({ where: { id: s.enrollmentId }, data: { commencingDate: null } });

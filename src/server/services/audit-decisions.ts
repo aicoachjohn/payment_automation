@@ -12,7 +12,7 @@ import { requirePermission, type Actor } from "@/server/auth/permissions";
 import { advanceLeadStatus } from "@/server/services/leads";
 import { getConfigNumber } from "@/server/services/system-config";
 import { notifyUser } from "@/server/notifications";
-import { money, round, sum, eq, gt, sub } from "@/server/money";
+import { money, round, sum, eq, gt, sub, formatINR } from "@/server/money";
 
 export class AuditError extends Error {
   readonly code = "AUDIT_ERROR";
@@ -83,13 +83,20 @@ export async function assertPaymentApprovable(payment: PaymentWithContext, input
   }
 
   // Over-collection: block if this would exceed the final approved fee (FR-REC-04).
+  //
+  // There is deliberately NO override for this — the Super Admin's delegated-audit path runs
+  // this very guard — so the message must name remedies that actually exist. It previously
+  // said "Over-collection needs a Super Admin override", sending the auditor to someone
+  // equally unable to approve it and leaving the record stuck with no way forward.
   const finalFee = payment.enrollment.finalApprovedFee;
   if (finalFee) {
     const others = await approvedReceived(payment.enrollmentId, payment.id);
     const newTotal = round(money(others).plus(payment.receivedAmount));
     if (gt(newTotal, finalFee)) {
       throw new AuditError(
-        "Approving this would take the total approved received above the Final Approved Fee. Over-collection needs a Super Admin override.",
+        `Approving this would take the total approved received to ${formatINR(newTotal)}, above the Final Approved Fee of ${formatINR(finalFee)}. ` +
+          "If the course or fee is wrong, ask a Sales Manager or the Super Admin to unlock the fee so Sales can correct it, then approve. " +
+          "If the amount itself is wrong, send this payment back for correction instead.",
       );
     }
   }

@@ -63,4 +63,4 @@ export const INTAKE_LINK = { TTL_DAYS: 7 } as const;
  * drift apart.
  */
 export const OVER_COLLECTION_REASON_REQUIRED =
-  "This is more than the learner still owes — add a reason before submitting.";
+  "This is more than the learner still owes. Nandhiya cannot approve it until the fee is corrected, so add a reason saying why before submitting.";

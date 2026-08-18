@@ -113,12 +113,23 @@ describe("variance & over-collection (FR-REC-03/04)", () => {
     await approvePayment(nandhiya, id, { confirmations: OK, varianceReason: "Accepted — agreed partial holding" });
     expect((await prisma.payment.findUniqueOrThrow({ where: { id } })).auditStatus).toBe(AuditStatus.APPROVED);
   });
-  it("over-collection is blocked (needs Super Admin override)", async () => {
+  it("over-collection is blocked, and the message names a remedy that actually exists", async () => {
     const leadId = await readyLead();
     const p1 = await capture(leadId, "44999.50", "V7OVER001");
     await approvePayment(nandhiya, p1, { confirmations: OK });
     const p2 = await capture(leadId, "50000", "V7OVER002", "overpay");
-    await expect(approvePayment(nandhiya, p2, { confirmations: OK, varianceReason: "accepting" })).rejects.toThrow(/above the Final Approved Fee|override/i);
+
+    let msg = "";
+    try {
+      await approvePayment(nandhiya, p2, { confirmations: OK, varianceReason: "accepting" });
+    } catch (e) { msg = (e as Error).message; }
+
+    expect(msg).toMatch(/above the Final Approved Fee/i);
+    // There is NO over-collection override — the Super Admin's delegated audit runs this
+    // same guard — so the message must not send the auditor chasing one. It used to, which
+    // left records stuck with no way forward.
+    expect(msg, "must not promise a Super Admin override that does not exist").not.toMatch(/Super Admin override/i);
+    expect(msg, "must point at unlocking the fee or sending it back").toMatch(/unlock the fee|correction/i);
   });
 });
 

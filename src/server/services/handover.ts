@@ -9,7 +9,7 @@ import { AuditStatus, HandoverType, Role } from "@prisma/client";
 import { db } from "@/server/db";
 import { writeAudit } from "@/server/audit";
 import { requireRecordAccess, type Actor } from "@/server/auth/permissions";
-import { calculateBalance, lte, sum, round } from "@/server/money";
+import { calculateBalance, lte, gt, money, sum, round, formatINR } from "@/server/money";
 import { isBasicComplete } from "@/server/services/leads";
 
 export class HandoverError extends Error {
@@ -72,6 +72,25 @@ export async function buildHandoverSnapshot(enrollmentId: string): Promise<Hando
     if (p.proofs.length === 0) missing.push(`Payment screenshot (payment #${p.paymentNumber})`);
   }
   if (!lte(balance, "0")) missing.push("Full payment (an outstanding balance remains)");
+
+  // A pending payment that would push the approved total above the fee can NEVER be approved
+  // (FR-REC-04), so "waiting for Nandhiya" is a dead end — and listing only the two symptoms
+  // above sends the salesperson to wait for something that will never arrive. Name the
+  // payment, the gap, and the way out.
+  if (e.finalApprovedFee) {
+    const awaitingAudit = e.payments.filter(
+      (p) => p.auditStatus === AuditStatus.PENDING_AUDIT || p.auditStatus === AuditStatus.RESUBMITTED,
+    );
+    for (const p of awaitingAudit) {
+      if (gt(round(money(totalReceived).plus(p.receivedAmount)), e.finalApprovedFee.toString())) {
+        missing.push(
+          `Payment #${p.paymentNumber} (${formatINR(p.receivedAmount.toString())}) is more than the Final Approved Fee ` +
+            `(${formatINR(e.finalApprovedFee.toString())}), so it cannot be approved as it stands — if the course is wrong, ` +
+            "ask a Sales Manager or the Super Admin to unlock the fee so Sales can correct it",
+        );
+      }
+    }
+  }
 
   return { record, complete: missing.length === 0, missing };
 }
