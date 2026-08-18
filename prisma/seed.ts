@@ -101,6 +101,7 @@ async function seedSystemConfig(updatedBy: string): Promise<void> {
     { key: "gst_percent", value: 18, description: "GST percentage applied to all brochure pricing (BR-13)." },
     { key: "session_timeout_minutes", value: 30, description: "Inactivity session timeout for all roles (FR-SEC-06)." },
     { key: "superadmin_session_timeout_minutes", value: 15, description: "Inactivity session timeout for SUPER_ADMIN (NFR-07a)." },
+    { key: "two_fa_trusted_device_hours", value: 24, description: "How long one 2FA pass is honoured on the same browser before the code is asked for again. 0 = ask on every sign-in." },
     { key: "max_upload_mb", value: 10, description: "Maximum payment-proof upload size in MB (FR-SEC-22)." },
     { key: "duplicate_payment_window_hours", value: 24, description: "Window for detecting duplicate payment submissions." },
     // Phase 3 — pricing/fee engine configuration (BR-13, NFR-16).

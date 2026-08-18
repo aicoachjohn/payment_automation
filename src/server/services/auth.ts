@@ -19,6 +19,7 @@ import {
   revokeAllUserSessions,
   revokeCurrentSession,
 } from "@/server/auth/session";
+import { hasTrustedDevice, issueTrustedDevice } from "@/server/auth/trusted-device";
 import { notifyUser, sendEmail } from "@/server/notifications";
 
 const TWO_FA_MANDATORY_ROLES = new Set<Role>([
@@ -149,14 +150,25 @@ export async function login(
   });
   await logSecurity("LOGIN_SUCCESS", user.id, ctx.ip);
 
+  // 2FA applies by role (and per-user opt-in), but the code is asked for once per window
+  // rather than on every sign-in: a browser that already passed it today is let through on
+  // the password alone. Checked BEFORE the session is created so the session is opened
+  // already-verified rather than being patched up afterwards.
   const twoFaRequired = TWO_FA_MANDATORY_ROLES.has(user.role) || user.twoFaEnabled;
+  const deviceTrusted = twoFaRequired ? await hasTrustedDevice(user.id) : false;
+  const mustEnterOtp = twoFaRequired && !deviceTrusted;
+
   const { sessionId } = await createSession({
     userId: user.id,
     role: user.role,
-    twoFaRequired,
+    twoFaRequired: mustEnterOtp,
     ip: ctx.ip,
     userAgent: ctx.userAgent,
   });
+
+  // Worth a security-log line: it records a sign-in that skipped the code, and by which
+  // device, so an audit can still reconstruct how someone got in.
+  if (deviceTrusted) await logSecurity("TWO_FA_SKIPPED_TRUSTED_DEVICE", user.id, ctx.ip);
 
   // Super Admin login → notify Rajesh (NFR-07a). Break-glass → alert primary SA + Rajesh.
   if (user.role === Role.SUPER_ADMIN) {
@@ -186,7 +198,7 @@ export async function login(
     }
   }
 
-  if (twoFaRequired) {
+  if (mustEnterOtp) {
     await issueOtp(sessionId, user.email);
     return { ok: true, step: "otp", home: ROLE_HOME[user.role] };
   }
@@ -223,6 +235,8 @@ export async function verifyOtp(code: string, ctx: AuthContextInput = {}): Promi
   }
 
   await markTwoFaVerified(record.id);
+  // Remember this browser so the next sign-in inside the window needs only the password.
+  await issueTrustedDevice(record.userId, { ip: ctx.ip, userAgent: ctx.userAgent });
   await logSecurity("LOGIN_2FA_OK", record.userId, ctx.ip);
   return {
     ok: true,

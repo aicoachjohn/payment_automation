@@ -6,6 +6,12 @@
 
 export const SESSION_COOKIE = "pib_session";
 
+/**
+ * Marks a browser that has already cleared 2FA, so the verification code is asked for once
+ * per window rather than on every sign-in. Opaque random token; the DB row is the authority.
+ */
+export const TRUSTED_DEVICE_COOKIE = "pib_device";
+
 /** The visible mark for a payment the Super Admin audited via delegation (FR-SA-13).
  *  Shown identically on the Sales, Data Management and Finance views and in history. */
 export const DELEGATED_AUDIT_LABEL = "Audited by Super Admin (delegated)";

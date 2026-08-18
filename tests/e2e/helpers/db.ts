@@ -41,8 +41,10 @@ export async function ensureUser(u: E2EUser): Promise<string> {
     update: data,
     create: { email: u.email, ...data },
   });
-  // Start each run from a clean session slate.
+  // Start each run from a clean session slate — including any remembered browser, so a
+  // 2FA test never inherits trust established by an earlier run.
   await prisma.session.deleteMany({ where: { userId: user.id } });
+  await prisma.trustedDevice.deleteMany({ where: { userId: user.id } });
   return user.id;
 }
 
@@ -51,6 +53,10 @@ export async function cleanupUser(email: string): Promise<void> {
   if (!user) return;
   await prisma.session.deleteMany({ where: { userId: user.id } });
   await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+  // Any role that clears 2FA leaves a remembered browser behind, and the FK is RESTRICT —
+  // so this has to go before the user, or the delete fails and the account leaks into the
+  // next run.
+  await prisma.trustedDevice.deleteMany({ where: { userId: user.id } });
   await prisma.securityEvent.deleteMany({ where: { userId: user.id } });
   await prisma.notification.deleteMany({ where: { recipientId: user.id } });
   await prisma.user.delete({ where: { id: user.id } });

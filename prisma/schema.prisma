@@ -139,10 +139,11 @@ model User {
   lastLogin          DateTime?  @map("last_login")
   createdBy          String?    @map("created_by")
 
-  leads         Lead[]               @relation("SalespersonLeads")
-  sessions      Session[]
-  resetTokens   PasswordResetToken[]
-  intakeInvites LeadIntakeInvite[]   @relation("SalespersonIntakeInvites")
+  leads          Lead[]               @relation("SalespersonLeads")
+  sessions       Session[]
+  resetTokens    PasswordResetToken[]
+  trustedDevices TrustedDevice[]
+  intakeInvites  LeadIntakeInvite[]   @relation("SalespersonIntakeInvites")
 
   @@index([role])
   @@index([status])
@@ -171,6 +172,30 @@ model Session {
 
   @@index([userId])
   @@map("session")
+}
+
+/// A browser that has already cleared 2FA, so the verification code is asked for once per
+/// window instead of on every sign-in. Mirrors PasswordResetToken: only the SHA-256 hash is
+/// stored and the raw token lives solely in an HttpOnly cookie, so a leaked database row
+/// cannot be replayed. This row — not the cookie — is the authority, which is what lets a
+/// password change, role change or deactivation kill the trust immediately, and lets the
+/// Super Admin revoke a lost laptop. Bound to ONE browser: signing in from anywhere else
+/// still triggers a fresh code.
+model TrustedDevice {
+  id         String    @id @default(cuid()) @map("device_id")
+  userId     String    @map("user_id")
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastUsedAt DateTime  @default(now()) @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  ipAddress  String?   @map("ip_address")
+  userAgent  String?   @map("user_agent")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@map("trusted_device")
 }
 
 /// Single-use, hashed, time-limited password reset tokens (FR-AUTH-05). Only the

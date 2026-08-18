@@ -20,6 +20,7 @@ import {
   verifySessionCookie,
 } from "@/server/auth/cookie";
 import type { Actor } from "@/server/auth/permissions";
+import { revokeTrustedDevices } from "@/server/auth/trusted-device";
 
 function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
@@ -169,11 +170,18 @@ export async function revokeCurrentSession(): Promise<void> {
   store.delete(SESSION_COOKIE);
 }
 
-/** Revoke ALL of a user's sessions (password change, role change, deactivation). */
+/**
+ * Revoke ALL of a user's sessions (password change, role change, deactivation).
+ *
+ * Also drops every browser they were remembered on, so 2FA is demanded again next time.
+ * Without this a deactivated or demoted user would still skip the code on a machine they had
+ * already signed in from — their sessions would be dead, but the trust would outlive them.
+ */
 export async function revokeAllUserSessions(userId: string): Promise<number> {
   const res = await db.session.updateMany({
     where: { userId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+  await revokeTrustedDevices(userId);
   return res.count;
 }
