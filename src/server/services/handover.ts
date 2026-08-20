@@ -255,21 +255,20 @@ export async function submitToFinance(
     await advanceLeadStatus(tx, h.enrollment.leadId, actor);
   });
 
-  const finance = await db.user.findMany({
-    where: { role: Role.FINANCE_REVIEWER, status: UserStatus.ACTIVE },
-    select: { id: true, email: true },
+  await notifyRoles([Role.FINANCE_REVIEWER], {
+    type: "HANDOVER_RECEIVED",
+    subject: `Handover approved — ${h.enrollment.lead.fullName}`,
+    body: `${h.enrollment.lead.fullName} has been approved by Data Management and handed over to Finance.`,
+    enrollmentId: h.enrollmentId,
   });
-  for (const f of finance) {
-    await notifyUser({
-      recipientId: f.id,
-      recipientEmail: f.email,
-      type: "HANDOVER_RECEIVED",
-      subject: `Handover approved — ${h.enrollment.lead.fullName}`,
-      body: `${h.enrollment.lead.fullName} has been approved by Data Management and handed over to Finance.`,
-      relatedEntityType: "Enrollment",
-      relatedEntityId: h.enrollmentId,
-    });
-  }
+
+  // The salesperson who submitted it is waiting on this outcome — tell them it cleared.
+  await notifyOwner(h.enrollment.lead, {
+    type: "HANDOVER_RECEIVED",
+    subject: `Approved by Data Management — ${h.enrollment.lead.fullName}`,
+    body: `Nandhiya has approved ${h.enrollment.lead.fullName} and passed the record to Rajesh in Finance.`,
+    enrollmentId: h.enrollmentId,
+  });
 
   return { message: "Handed over to Rajesh (Finance).", handoverId };
 }
@@ -311,12 +310,14 @@ export async function financeApproveHandover(
     });
   });
 
-  await notifyRoles([Role.DATA_MGMT_AUDITOR], {
+  const approvedMsg = {
     type: "HANDOVER_RECEIVED",
     subject: `Finance approved — ${h.enrollment.lead.fullName}`,
-    body: `Rajesh (Finance) has approved the handover for ${h.enrollment.lead.fullName}.`,
+    body: `Rajesh (Finance) has approved the handover for ${h.enrollment.lead.fullName}. This enrollment is fully signed off.`,
     enrollmentId: h.enrollmentId,
-  });
+  };
+  await notifyRoles([Role.DATA_MGMT_AUDITOR], approvedMsg);
+  await notifyOwner(h.enrollment.lead, approvedMsg);
 
   return { message: "Approved. This learner is now signed off by Finance." };
 }
@@ -360,12 +361,14 @@ export async function financeRejectHandover(
     await advanceLeadStatus(tx, h.enrollment.leadId, actor);
   });
 
-  await notifyRoles([Role.DATA_MGMT_AUDITOR], {
+  const rejectedMsg = {
     type: "HANDOVER_RECEIVED",
     subject: `Finance sent it back — ${h.enrollment.lead.fullName}`,
     body: `Rajesh (Finance) returned the handover for ${h.enrollment.lead.fullName}. Reason: ${reason.trim()}`,
     enrollmentId: h.enrollmentId,
-  });
+  };
+  await notifyRoles([Role.DATA_MGMT_AUDITOR], rejectedMsg);
+  await notifyOwner(h.enrollment.lead, rejectedMsg);
 
   return { message: "Sent back to Data Management with your reason." };
 }
@@ -384,6 +387,21 @@ async function loadForFinance(handoverId: string) {
     throw new HandoverError("You have already signed this learner off.");
   }
   return h;
+}
+
+/** Tell the salesperson who owns the lead. Every stage outcome reaches them. */
+async function notifyOwner(
+  lead: { salespersonId: string; fullName: string },
+  msg: { type: string; subject: string; body: string; enrollmentId: string },
+): Promise<void> {
+  await notifyUser({
+    recipientId: lead.salespersonId,
+    type: msg.type,
+    subject: msg.subject,
+    body: msg.body,
+    relatedEntityType: "Enrollment",
+    relatedEntityId: msg.enrollmentId,
+  });
 }
 
 async function notifyRoles(
@@ -431,11 +449,47 @@ export async function getHandover(actor: Actor, handoverId: string): Promise<{ i
   };
 }
 
+/**
+ * Counts by stage, scoped exactly like listHandovers — a salesperson sees only their own
+ * leads. Drives the "where are my submissions" strip each role gets on the handover screen,
+ * so Sales, Nandhiya and Rajesh can all answer that question without asking each other.
+ */
+export interface HandoverCountsByStage {
+  withDataMgmt: number;
+  withFinance: number;
+  financeApproved: number;
+  total: number;
+}
+
+export async function handoverCounts(actor: Actor): Promise<HandoverCountsByStage> {
+  const rows = await db.operationsHandover.groupBy({
+    by: ["stage"],
+    where: scopeFor(actor),
+    _count: { _all: true },
+  });
+  const at = (stage: HandoverStage) => rows.find((r) => r.stage === stage)?._count._all ?? 0;
+  const counts = {
+    withDataMgmt: at(HandoverStage.WITH_DATA_MGMT),
+    withFinance: at(HandoverStage.WITH_FINANCE),
+    financeApproved: at(HandoverStage.FINANCE_APPROVED),
+  };
+  return { ...counts, total: counts.withDataMgmt + counts.withFinance + counts.financeApproved };
+}
+
+/** Staff see everything; a salesperson sees only handovers for leads they own. */
+function scopeFor(actor: Actor) {
+  const staff =
+    actor.role === Role.DATA_MGMT_AUDITOR ||
+    actor.role === Role.FINANCE_REVIEWER ||
+    actor.role === Role.SUPER_ADMIN ||
+    actor.role === Role.SALES_MANAGER;
+  return staff ? {} : { enrollment: { lead: { salespersonId: actor.userId } } };
+}
+
 /** List handovers visible to the actor (all for staff roles; own leads for a salesperson). */
 export async function listHandovers(actor: Actor): Promise<{ id: string; learner: string; type: string; stage: HandoverStage; validated: boolean; handoverDate: string | null }[]> {
-  const staff = actor.role === Role.DATA_MGMT_AUDITOR || actor.role === Role.FINANCE_REVIEWER || actor.role === Role.SUPER_ADMIN || actor.role === Role.SALES_MANAGER;
   const rows = await db.operationsHandover.findMany({
-    where: staff ? {} : { enrollment: { lead: { salespersonId: actor.userId } } },
+    where: scopeFor(actor),
     include: { enrollment: { include: { lead: { select: { fullName: true } } } } },
     orderBy: { createdAt: "desc" },
     take: 200,

@@ -53,6 +53,15 @@ export default async function HandoverPage({ params }: { params: Promise<{ id: s
         {/* Server-rendered so the confirmation SURVIVES the refresh. The decision panel
             unmounts the moment the stage changes, so without this Rajesh would click
             Approve and be shown nothing at all. */}
+        {/* Same reason as the Finance banner below: the "Pass to Finance" panel unmounts the
+            instant the stage moves, taking its own success message with it, so Nandhiya was
+            left with no confirmation that her hand-off worked. */}
+        {withFinance && (
+          <div className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-800 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-300">
+            <strong>Handed over to Rajesh (Finance).</strong> Waiting on his sign-off.
+          </div>
+        )}
+
         {h.stage === "FINANCE_APPROVED" && (
           <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
             <strong>Approved by Finance.</strong> This learner is signed off

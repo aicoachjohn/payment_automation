@@ -157,6 +157,27 @@ export async function approvePayment(actor: Actor, paymentId: string, input: App
   await db.$transaction(async (tx) => {
     await writeApproval(tx, actor, payment, variance, input, false);
   });
+  await notifyApprovalToSales(payment);
+}
+
+/**
+ * Tell the salesperson who submitted it that their payment cleared audit.
+ *
+ * Correction and rejection already reached them; approval — the outcome they are actually
+ * waiting on — did not, so a salesperson had to keep opening the lead to find out. Sent
+ * after the transaction commits: a failed email must never roll back an approval.
+ */
+export async function notifyApprovalToSales(payment: PaymentWithContext): Promise<void> {
+  await notifyUser({
+    recipientId: payment.submittedBy,
+    type: "PAYMENT_APPROVED",
+    subject: `Payment approved — ${payment.enrollment.lead.fullName}`,
+    body:
+      `Payment #${payment.paymentNumber} for ${payment.enrollment.lead.fullName} ` +
+      "has been approved by Data Management.",
+    relatedEntityType: "Payment",
+    relatedEntityId: payment.id,
+  });
 }
 
 // ── Correction / Rejection (FR-DM-16/18, BR-16, FRD 3.2 rule 4) ───────────────

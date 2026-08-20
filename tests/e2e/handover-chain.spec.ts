@@ -147,7 +147,8 @@ test("Sales hand over to Nandhiya, who approves and hands over to Finance", asyn
   await page.reload();
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: /Hand over to Rajesh/i }).click();
-  await expect(page.getByText(/Handed over to Rajesh/i)).toBeVisible({ timeout: 60_000 });
+  // Server-rendered, so the confirmation survives the refresh that unmounts the panel.
+  await expect(page.getByText(/Handed over to Rajesh/i).first()).toBeVisible({ timeout: 60_000 });
 
   const after = await prisma.operationsHandover.findUniqueOrThrow({ where: { id: h.id } });
   expect(after.stage).toBe("WITH_FINANCE");

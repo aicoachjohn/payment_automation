@@ -21,7 +21,7 @@ const leads = await import("@/server/services/leads");
 const { generateDraft } = await import("@/server/services/draft");
 const { uploadProof, capturePayment } = await import("@/server/services/payments");
 const { approvePayment } = await import("@/server/services/audit-decisions");
-const { submitToDataMgmt, submitToFinance, financeApproveHandover, financeRejectHandover, buildHandoverSnapshot, HandoverError } = await import("@/server/services/handover");
+const { submitToDataMgmt, submitToFinance, financeApproveHandover, financeRejectHandover, buildHandoverSnapshot, handoverCounts, HandoverError } = await import("@/server/services/handover");
 const automation = await import("@/server/services/automation");
 
 const prisma = new PrismaClient();
@@ -224,8 +224,84 @@ describe("stage 3 — Finance sign it off, or send it back", () => {
   });
 });
 
+describe("the salesperson is told what happened to their submission", () => {
+  /** Notifications sent to the owning salesperson for this enrollment. */
+  async function toSales(enrollmentId: string) {
+    return prisma.notification.findMany({
+      where: { recipientId: mathiew.userId, relatedEntityId: enrollmentId },
+      select: { subject: true, body: true },
+    });
+  }
+
+  it("Nandhiya approving a payment reaches the salesperson", async () => {
+    // Correction and rejection already reached them; approval — the outcome they actually
+    // wait on — did not, so they had to keep reopening the lead to find out.
+    const s = await seedUnapproved();
+    const p = await prisma.payment.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId } });
+    await approvePayment(nandhiya, p.id, { confirmations: OK, varianceReason: "accepted" });
+
+    const notes = await prisma.notification.findMany({
+      where: { recipientId: mathiew.userId, relatedEntityId: p.id },
+      select: { subject: true },
+    });
+    expect(notes.some((n) => /approved/i.test(n.subject))).toBe(true);
+  });
+
+  it("Nandhiya passing it to Finance reaches the salesperson", async () => {
+    const s = await seedUnapproved();
+    const { handoverId } = await submitToDataMgmt(mathiew, s.enrollmentId);
+    const p = await prisma.payment.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId } });
+    await approvePayment(nandhiya, p.id, { confirmations: OK, varianceReason: "accepted" });
+    await submitToFinance(nandhiya, handoverId);
+
+    const notes = await toSales(s.enrollmentId);
+    expect(notes.some((n) => /Approved by Data Management/i.test(n.subject))).toBe(true);
+  });
+
+  it("Rajesh's approval reaches BOTH Nandhiya and the salesperson", async () => {
+    const s = await seedUnapproved();
+    const { handoverId } = await submitToDataMgmt(mathiew, s.enrollmentId);
+    const p = await prisma.payment.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId } });
+    await approvePayment(nandhiya, p.id, { confirmations: OK, varianceReason: "accepted" });
+    await submitToFinance(nandhiya, handoverId);
+    await financeApproveHandover(rajesh, handoverId);
+
+    expect((await toSales(s.enrollmentId)).some((n) => /Finance approved/i.test(n.subject))).toBe(true);
+    const toNandhiya = await prisma.notification.findMany({
+      where: { recipientId: nandhiya.userId, relatedEntityId: s.enrollmentId },
+      select: { subject: true },
+    });
+    expect(toNandhiya.some((n) => /Finance approved/i.test(n.subject))).toBe(true);
+  });
+
+  it("Rajesh sending it back reaches BOTH, carrying his reason", async () => {
+    const s = await seedUnapproved();
+    const { handoverId } = await submitToDataMgmt(mathiew, s.enrollmentId);
+    const p = await prisma.payment.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId } });
+    await approvePayment(nandhiya, p.id, { confirmations: OK, varianceReason: "accepted" });
+    await submitToFinance(nandhiya, handoverId);
+    await financeRejectHandover(rajesh, handoverId, "Statement does not match");
+
+    const sales = await toSales(s.enrollmentId);
+    expect(sales.some((n) => /sent it back/i.test(n.subject))).toBe(true);
+    expect(sales.some((n) => /Statement does not match/i.test(n.body))).toBe(true);
+  });
+});
+
+describe("handover counts are scoped to who is asking", () => {
+  it("a salesperson sees only their own submissions", async () => {
+    const s = await seedUnapproved();
+    await submitToDataMgmt(mathiew, s.enrollmentId);
+    const mine = await handoverCounts(mathiew);
+    const hers = await handoverCounts(nandhiya);
+    expect(mine.withDataMgmt).toBeGreaterThan(0);
+    // Nandhiya sees the whole board, so never fewer than one salesperson's slice.
+    expect(hers.total).toBeGreaterThanOrEqual(mine.total);
+  });
+});
+
 describe("an overdue down payment alerts everyone but never moves the record", () => {
-  it("notifies Sales, the manager, Nandhiya and Rajesh — and creates NO handover", async () => {
+  it("notifies Sales, Nandhiya and Rajesh — and creates NO handover", async () => {
     // The Day-15 auto-transfer was removed: every handover is now submitted by a person.
     // The chasing still has to happen, so the alert must survive the removal.
     n += 1;
@@ -249,9 +325,11 @@ describe("an overdue down payment alerts everyone but never moves the record", (
     const roles = new Set(recipientRoles.map((r) => r.role));
 
     expect(roles.has(Role.SALESPERSON)).toBe(true);
-    expect(roles.has(Role.SALES_MANAGER)).toBe(true);
     expect(roles.has(Role.DATA_MGMT_AUDITOR)).toBe(true);
     expect(roles.has(Role.FINANCE_REVIEWER)).toBe(true);
+    // The team has no Sales Manager (business decision), so that account is deactivated and
+    // the lookup simply finds nobody. The alert still reaches everyone who does exist —
+    // which is the property that matters. Reactivate one and they are included again.
 
     const handover = await prisma.operationsHandover.findFirst({ where: { enrollmentId: e.id } });
     expect(handover, "nothing may hand itself over").toBeNull();

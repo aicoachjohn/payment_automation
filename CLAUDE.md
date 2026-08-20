@@ -23,7 +23,7 @@ collected. Nothing hands itself over: every hop is submitted by a person (see ru
 
 ---
 
-## The eleven inviolable rules
+## The twelve inviolable rules
 
 1. **Finance sees nothing unapproved.** A payment record is invisible to Finance until
    Nandhiya approves it. There is no bypass path anywhere in the codebase. (BR-15)
@@ -59,11 +59,16 @@ collected. Nothing hands itself over: every hop is submitted by a person (see ru
     thresholds, reminder schedules, templates, the 15-day window, the GST percentage —
     is editable by the Super Admin without a code change. Nothing hard-coded.
     (NFR-16, BR-13)
-11. **A record only moves because a person moved it.** The handover travels
+11. **Every stage outcome reaches the people waiting on it.** Nandhiya approving, rejecting
+    or asking for a correction notifies the owning salesperson; her hand-off to Finance
+    notifies them too; and Rajesh's decision — either way — notifies Nandhiya AND the
+    salesperson. Each role reaches `/handover` from its own navigation and sees counts by
+    stage, scoped to what it owns (a salesperson sees only their own submissions).
+12. **A record only moves because a person moved it.** The handover travels
     Sales → Data Management → Finance, and each hop is an explicit submission. The Day-15
     auto-transfer to Operations was **removed** by business decision (was FR-SAL-53,
-    BR-10/BR-12) — an overdue down payment now alerts Sales, the Sales Manager, Nandhiya and
-    Rajesh once a day and leaves the record exactly where it is. Stages are `WITH_DATA_MGMT`
+    BR-10/BR-12) — an overdue down payment now alerts Sales, Nandhiya and Rajesh once a day
+    (plus a Sales Manager if one is ever appointed) and leaves the record where it is. Stages are `WITH_DATA_MGMT`
     → `WITH_FINANCE` → `FINANCE_APPROVED`; a Finance rejection returns it to
     `WITH_DATA_MGMT` with a mandatory reason (BR-16). Lead status is still derived from the
     stage, never stamped.
@@ -98,10 +103,14 @@ collected. Nothing hands itself over: every hop is submitted by a person (see ru
   cannot appear unnoticed. Rajesh's decision does **not** filter his statement: a payment
   counts from the moment Nandhiya approves it (BR-15), so collected money can never go
   missing from Finance's totals while a sign-off is pending.
-- **Two-factor is per-role, and the code is asked for once per working day — not every sign-in.**
-  Mandatory for `SUPER_ADMIN`, `DATA_MGMT_AUDITOR` and `FINANCE_REVIEWER` (the roles that see
-  or decide on money); opt-in per user for the rest, so salespeople sign in with a password
-  alone. The 6-digit code is emailed (there is no SMS path). After it is entered, that ONE
+- **Two-factor is OFF by business decision — everyone signs in with a password alone.**
+  Which roles must clear an emailed code is config, not code: `two_fa_required_roles` in
+  SystemConfig, currently `[]`. Put role names back in that array to reinstate it (a MISSING
+  key falls back to the three money-facing roles, so an unreadable config fails toward asking).
+  The per-user `twoFaEnabled` flag still forces a code for an individual. Everything below
+  describes the mechanism, which is intact and tested, and applies whenever it is switched on.
+
+  The 6-digit code is emailed (there is no SMS path). After it is entered, that ONE
   browser is remembered **until the end of the IST working day — 04:00 IST, not midnight** —
   and only the password is needed until then. The late boundary keeps an evening session in
   one piece; because it is still well before office hours, the first sign-in each morning is
@@ -115,8 +124,12 @@ collected. Nothing hands itself over: every hop is submitted by a person (see ru
   documented break-glass account; any login with it alerts the primary Super Admin and
   Rajesh.
 - Named users from the FRD: Salespeople **Mathiew, Kevin, Dinesh, Hari**; Data Management
-  **Nandhiya**; Finance **Rajesh**. A Sales Manager and the Super Admin are nominated
-  (see Business Decisions Q-03).
+  **Nandhiya**; Finance **Rajesh**; plus the Super Admin.
+- **There is no Sales Manager** (business decision). The account is DEACTIVATED, not deleted
+  (BR-21), and the `SALES_MANAGER` role remains in the codebase so one can be appointed later
+  by reactivating it. Two consequences while none exists: role-targeted notifications simply
+  find nobody, and **unlocking a locked fee falls to the Super Admin alone**, since that
+  approval is Sales Manager or Super Admin.
 
 ### Role-Based Access Control matrix (FRD §2.2 — reproduced verbatim)
 

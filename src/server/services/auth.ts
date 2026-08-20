@@ -21,12 +21,25 @@ import {
 } from "@/server/auth/session";
 import { hasTrustedDevice, issueTrustedDevice } from "@/server/auth/trusted-device";
 import { notifyUser, sendEmail } from "@/server/notifications";
+import { getConfigValue } from "@/server/services/system-config";
 
-const TWO_FA_MANDATORY_ROLES = new Set<Role>([
-  Role.SUPER_ADMIN,
-  Role.DATA_MGMT_AUDITOR,
-  Role.FINANCE_REVIEWER,
-]);
+/**
+ * Roles that must clear an emailed verification code, read from SystemConfig
+ * (`two_fa_required_roles`) so the Super Admin can turn it on or off without a code change
+ * (NFR-16, BR-13). Set to `[]` by business decision — everyone signs in with a password
+ * alone. Put the role names back in the array to reinstate it.
+ *
+ * A MISSING or malformed setting falls back to the three money-facing roles: an unreadable
+ * config must fail toward asking for the code, never toward skipping it.
+ */
+const TWO_FA_DEFAULT_ROLES: Role[] = [Role.SUPER_ADMIN, Role.DATA_MGMT_AUDITOR, Role.FINANCE_REVIEWER];
+
+async function twoFaRequiredRoles(): Promise<Set<Role>> {
+  const raw = await getConfigValue("two_fa_required_roles");
+  if (!Array.isArray(raw)) return new Set(TWO_FA_DEFAULT_ROLES);
+  const valid = Object.values(Role) as string[];
+  return new Set(raw.filter((r): r is Role => typeof r === "string" && valid.includes(r)));
+}
 
 const GENERIC_LOGIN_ERROR = "Invalid email or password.";
 
@@ -154,7 +167,7 @@ export async function login(
   // rather than on every sign-in: a browser that already passed it today is let through on
   // the password alone. Checked BEFORE the session is created so the session is opened
   // already-verified rather than being patched up afterwards.
-  const twoFaRequired = TWO_FA_MANDATORY_ROLES.has(user.role) || user.twoFaEnabled;
+  const twoFaRequired = (await twoFaRequiredRoles()).has(user.role) || user.twoFaEnabled;
   const deviceTrusted = twoFaRequired ? await hasTrustedDevice(user.id) : false;
   const mustEnterOtp = twoFaRequired && !deviceTrusted;
 
@@ -286,7 +299,7 @@ export async function changePassword(
   await revokeAllUserSessions(user.id);
   await logSecurity("PASSWORD_CHANGED", user.id, ctx.ip);
 
-  const twoFaRequired = TWO_FA_MANDATORY_ROLES.has(user.role) || user.twoFaEnabled;
+  const twoFaRequired = (await twoFaRequiredRoles()).has(user.role) || user.twoFaEnabled;
   // Re-issue a session already marked 2FA-verified (they cleared 2FA this login).
   await createSession({ userId: user.id, role: user.role, twoFaRequired: false, ip: ctx.ip, userAgent: ctx.userAgent });
   void twoFaRequired;

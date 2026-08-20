@@ -9,6 +9,7 @@ export default async function FinanceLayout({ children }: { children: React.Reac
       user={user}
       nav={[
         { href: "/finance", label: "Statement" },
+        { href: "/handover", label: "Handovers" },
         { href: "/finance/customers", label: "Customers" },
         { href: "/finance/collections", label: "Collections" },
         { href: "/finance/queries", label: "Queries" },

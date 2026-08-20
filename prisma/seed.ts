@@ -101,6 +101,7 @@ async function seedSystemConfig(updatedBy: string): Promise<void> {
     { key: "gst_percent", value: 18, description: "GST percentage applied to all brochure pricing (BR-13)." },
     { key: "session_timeout_minutes", value: 30, description: "Inactivity session timeout for all roles (FR-SEC-06)." },
     { key: "superadmin_session_timeout_minutes", value: 15, description: "Inactivity session timeout for SUPER_ADMIN (NFR-07a)." },
+    { key: "two_fa_required_roles", value: [], description: "Roles that must clear an emailed verification code at sign-in. Empty = password only (business decision). Put role names back (e.g. [\"SUPER_ADMIN\",\"DATA_MGMT_AUDITOR\",\"FINANCE_REVIEWER\"]) to reinstate it. A MISSING key falls back to those three." },
     { key: "two_fa_trust_scope", value: "working_day", description: "How far one 2FA pass carries on the same browser. 'working_day' = until the end-of-day boundary below, so each morning asks again; 'off' = ask on every sign-in." },
     { key: "two_fa_trust_day_end_hour_ist", value: 4, description: "IST hour (0-23) at which the working day ends for 2FA trust. 4 = 04:00, so a late evening is not cut off at midnight but the next morning is still challenged." },
     { key: "max_upload_mb", value: 10, description: "Maximum payment-proof upload size in MB (FR-SEC-22)." },
