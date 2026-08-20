@@ -14,9 +14,15 @@ proof as **Level-1 approval**, and only then does the payment become visible to
 **Rajesh** (Finance) as **read-only**. One nominated **Super Admin** sits above all
 three with controlled override authority.
 
+The **handover chain follows the same three stages**: Sales assemble the consolidated
+learner/payment record and submit it to Nandhiya; she audits the payments on it and passes it
+to Rajesh. **Each stage is gated only by what that role owns** — Sales are never blocked by
+something only Nandhiya can fix, and she is never blocked by money still to be collected.
+Nothing hands itself over: every hop is submitted by a person (see rule 11).
+
 ---
 
-## The ten inviolable rules
+## The eleven inviolable rules
 
 1. **Finance sees nothing unapproved.** A payment record is invisible to Finance until
    Nandhiya approves it. There is no bypass path anywhere in the codebase. (BR-15)
@@ -52,6 +58,12 @@ three with controlled override authority.
     thresholds, reminder schedules, templates, the 15-day window, the GST percentage —
     is editable by the Super Admin without a code change. Nothing hard-coded.
     (NFR-16, BR-13)
+11. **A record only moves because a person moved it.** The handover travels
+    Sales → Data Management → Finance, and each hop is an explicit submission. The Day-15
+    auto-transfer to Operations was **removed** by business decision (was FR-SAL-53,
+    BR-10/BR-12) — an overdue down payment now alerts Sales, the Sales Manager, Nandhiya and
+    Rajesh once a day and leaves the record exactly where it is. A handover stage is
+    `WITH_DATA_MGMT` or `WITH_FINANCE`; lead status is still derived from it, never stamped.
 
 ---
 
