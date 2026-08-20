@@ -11,7 +11,18 @@ import { financeApproveAction, financeRejectAction } from "./actions";
  * audit status. Rejecting requires a written reason and sends the record back to Data
  * Management, exactly like every other rejection in the platform.
  */
-export function FinanceDecision({ handoverId }: { handoverId: string }) {
+export function FinanceDecision({
+  handoverId,
+  confirmOn,
+}: {
+  handoverId: string;
+  /**
+   * Where to show the confirmation. On Rajesh's dashboard the card legitimately LEAVES the
+   * "awaiting sign-off" list the instant he decides, taking any in-component message with it
+   * — so the outcome is handed to the page as a query param and rendered there instead.
+   */
+  confirmOn?: string;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [mode, setMode] = useState<"idle" | "rejecting">("idle");
@@ -26,9 +37,20 @@ export function FinanceDecision({ handoverId }: { handoverId: string }) {
       const res = await financeApproveAction({ handoverId });
       if (res?.serverError) return setErr(res.serverError);
       if (res?.data && !res.data.ok) return setErr(res.data.error);
-      if (res?.data?.ok) setMsg(res.data.message);
+      if (res?.data?.ok) return done(res.data.message);
       router.refresh();
     });
+  }
+
+  /** Show the outcome where it will still be visible after the list re-renders. */
+  function done(message: string) {
+    if (confirmOn) {
+      router.replace(`${confirmOn}?done=${encodeURIComponent(message)}`);
+      router.refresh();
+      return;
+    }
+    setMsg(message);
+    router.refresh();
   }
 
   function reject() {
@@ -42,9 +64,9 @@ export function FinanceDecision({ handoverId }: { handoverId: string }) {
       if (res?.serverError) return setErr(res.serverError);
       if (res?.data && !res.data.ok) return setErr(res.data.error);
       if (res?.data?.ok) {
-        setMsg(res.data.message);
         setMode("idle");
         setReason("");
+        return done(res.data.message);
       }
       router.refresh();
     });

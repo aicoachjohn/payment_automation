@@ -3,7 +3,9 @@ import { Role, PaymentType, Program, Plan } from "@prisma/client";
 import { requireRoles } from "@/server/auth/guard";
 import { financeOverview, financeStatement, listSalespeople, type StatementFilters } from "@/server/services/finance";
 import { STATEMENT_COLUMNS } from "@/lib/finance-columns";
-import { formatINR } from "@/lib/format";
+import { handoversAwaitingFinance } from "@/server/services/handover";
+import { FinanceDecision } from "@/app/handover/finance-decision";
+import { formatINR, formatDate } from "@/lib/format";
 import { DELEGATED_AUDIT_LABEL } from "@/lib/constants";
 import { ProofViewer } from "@/components/shared/proof-viewer";
 
@@ -21,6 +23,8 @@ export default async function FinanceStatementPage({
 }) {
   const { user, actor } = await requireRoles([Role.FINANCE_REVIEWER]);
   const sp = await searchParams;
+  // Outcome of a sign-off just made, handed over as a query param so it outlives the card.
+  const done = sp.done?.slice(0, 200);
   const today = todayIso();
   const filters: StatementFilters = {
     from: sp.from || today,
@@ -33,10 +37,11 @@ export default async function FinanceStatementPage({
     search: sp.search || undefined,
   };
 
-  const [tiles, statement, salespeople] = await Promise.all([
+  const [tiles, statement, salespeople, awaitingSignOff] = await Promise.all([
     financeOverview(actor),
     financeStatement(actor, filters),
     listSalespeople(actor),
+    handoversAwaitingFinance(actor),
   ]);
 
   const exportQuery = new URLSearchParams(
@@ -61,6 +66,48 @@ export default async function FinanceStatementPage({
           <strong>{approvedToday.count}</strong> payment{approvedToday.count === 1 ? "" : "s"} approved today
           {approvedToday.value ? ` — ${formatINR(approvedToday.value)}` : ""}. They appear below automatically, with
           no manual forwarding step.
+        </div>
+      )}
+
+      {/* Survives the card leaving the queue — see FinanceDecision's `confirmOn`. */}
+      {done && (
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+          {done}
+        </div>
+      )}
+
+      {/* Work waiting on Rajesh, first: everything else on this screen is read-only reporting,
+          and his sign-off previously lived only behind the Handovers tab, so his home page
+          gave him no reason to know it was there. */}
+      {awaitingSignOff.length > 0 && (
+        <div className="space-y-3 rounded-lg border border-sky-300 bg-sky-50/60 p-4 dark:border-sky-800 dark:bg-sky-950/40">
+          <div>
+            <h2 className="text-lg font-semibold text-brand-navy dark:text-slate-100">
+              Awaiting your sign-off ({awaitingSignOff.length})
+            </h2>
+            <p className="text-xs text-slate-500">
+              Data Management has approved every payment on these learners and passed them to you. Approve to sign
+              off, or send one back with a reason.
+            </p>
+          </div>
+
+          {awaitingSignOff.map((h) => (
+            <div key={h.id} data-handover={h.id} className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div>
+                  <Link href={`/handover/${h.id}`} className="font-medium text-brand-navy hover:underline dark:text-slate-100">
+                    {h.learner}
+                  </Link>
+                  <span className="ml-2 text-xs text-slate-500">{h.program}</span>
+                </div>
+                <div className="text-xs text-slate-500">
+                  Balance <span className="font-mono">{formatINR(h.balance)}</span>
+                  {h.handedOverAt ? ` · handed over ${formatDate(h.handedOverAt)}` : ""}
+                </div>
+              </div>
+              <FinanceDecision handoverId={h.id} confirmOn="/finance" />
+            </div>
+          ))}
         </div>
       )}
 

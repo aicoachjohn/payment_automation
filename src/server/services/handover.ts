@@ -486,6 +486,46 @@ function scopeFor(actor: Actor) {
   return staff ? {} : { enrollment: { lead: { salespersonId: actor.userId } } };
 }
 
+/**
+ * Records sitting on Finance's desk, for Rajesh's own dashboard.
+ *
+ * His sign-off lived only behind the Handovers tab, so his home screen said nothing about
+ * work waiting on him and he had no reason to go looking. This is what puts it in front of
+ * him where he actually starts.
+ */
+export async function handoversAwaitingFinance(
+  actor: Actor,
+): Promise<{ id: string; learner: string; program: string; balance: string; handedOverAt: string | null }[]> {
+  requirePermission(actor, "handover:finance-decide");
+  const rows = await db.operationsHandover.findMany({
+    where: { stage: HandoverStage.WITH_FINANCE },
+    include: {
+      enrollment: {
+        include: {
+          lead: { select: { fullName: true } },
+          payments: { where: { voided: false }, select: { receivedAmount: true, auditStatus: true, voided: true } },
+        },
+      },
+    },
+    orderBy: { passedToFinanceAt: "asc" },
+  });
+  return rows.map((h) => ({
+    id: h.id,
+    learner: h.enrollment.lead.fullName,
+    program: `${h.enrollment.program}${h.enrollment.plan ? ` / ${h.enrollment.plan}` : ""}`,
+    // Money still owed, so he can see what he is signing off (BR-22 — computed, never stored).
+    balance: calculateBalance(
+      h.enrollment.finalApprovedFee?.toString() ?? "0",
+      h.enrollment.payments.map((p) => ({
+        receivedAmount: p.receivedAmount.toString(),
+        auditStatus: p.auditStatus,
+        voided: p.voided,
+      })),
+    ).toFixed(2),
+    handedOverAt: h.passedToFinanceAt?.toISOString() ?? null,
+  }));
+}
+
 /** List handovers visible to the actor (all for staff roles; own leads for a salesperson). */
 export async function listHandovers(actor: Actor): Promise<{ id: string; learner: string; type: string; stage: HandoverStage; validated: boolean; handoverDate: string | null }[]> {
   const rows = await db.operationsHandover.findMany({

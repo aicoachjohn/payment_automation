@@ -109,6 +109,10 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
+// Three logins, several server actions and on-demand compilation in a dev build — well past
+// the 30s default when the whole suite is warming routes at once.
+test.setTimeout(180_000);
+
 test("Sales hand over to Nandhiya, who approves and hands over to Finance", async ({ page }) => {
   // ── Stage 1: Sales ────────────────────────────────────────────────────────
   await login(page, SALES);
@@ -162,26 +166,37 @@ test("Sales hand over to Nandhiya, who approves and hands over to Finance", asyn
   const e = await prisma.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
   expect(Number(e.finalApprovedFee)).toBeGreaterThan(5000);
 
-  // ── Stage 3: Rajesh ───────────────────────────────────────────────────────
+  // ── Stage 3: Rajesh, from HIS OWN dashboard — not a separate Handovers tab ────
   await page.goto("/login");
   await login(page, FIN);
-  await page.goto(`/handover/${h.id}`);
   await page.waitForLoadState("networkidle");
 
+  // The work waiting on him must be on the page he lands on. It previously lived only behind
+  // the Handovers tab, so his home screen gave him no reason to know it existed.
+  await expect(page.getByRole("heading", { name: /Awaiting your sign-off/i })).toBeVisible();
+
+  // The panel lists EVERY record awaiting Finance, and this database may hold others, so
+  // scope every action to this handover's own card rather than the first match on the page.
+  const card = page.locator(`[data-handover="${h.id}"]`);
+  await expect(card).toBeVisible();
+
   // He sends it back first, with a reason — it must land on Nandhiya's desk again.
-  await page.getByRole("button", { name: /Send back to Data Management/i }).click();
-  await page.getByPlaceholder(/What does Data Management need to correct/i).fill("Proof is unreadable");
-  await page.getByRole("button", { name: /Confirm — send it back/i }).click();
+  await card.getByRole("button", { name: /Send back to Data Management/i }).click();
+  await card.getByPlaceholder(/What does Data Management need to correct/i).fill("Proof is unreadable");
+  await card.getByRole("button", { name: /Confirm — send it back/i }).click();
+  // The card correctly drops out of "awaiting sign-off", so the confirmation lands on the
+  // page rather than inside the card that just disappeared.
   await expect(page.getByText(/Sent back to Data Management/i)).toBeVisible({ timeout: 60_000 });
   expect((await prisma.operationsHandover.findUniqueOrThrow({ where: { id: h.id } })).stage).toBe("WITH_DATA_MGMT");
 
-  // Nandhiya passes it back, and this time he approves.
+  // Nandhiya passes it back, and this time he approves — again from his own dashboard.
   await prisma.operationsHandover.update({ where: { id: h.id }, data: { stage: "WITH_FINANCE" } });
-  await page.reload();
+  await page.goto("/finance");
   await page.waitForLoadState("networkidle");
-  await page.getByRole("button", { name: /^Approve$/ }).click();
+  const card2 = page.locator(`[data-handover="${h.id}"]`);
+  await card2.getByRole("button", { name: /^Approve$/ }).click();
   // The confirmation must survive the refresh that unmounts the decision panel — otherwise
   // Rajesh clicks Approve and is shown nothing.
-  await expect(page.getByText(/Approved by Finance/i).first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/signed off by Finance/i)).toBeVisible({ timeout: 60_000 });
   expect((await prisma.operationsHandover.findUniqueOrThrow({ where: { id: h.id } })).stage).toBe("FINANCE_APPROVED");
 });
