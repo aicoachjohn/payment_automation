@@ -233,6 +233,7 @@ src/server/money/       Decimal money type and rounding rule
 src/server/storage/     payment-proof storage adapter
 src/server/ocr/         OCR provider interface
 src/server/notifications/ email / in-app notification dispatch
+src/server/sheets/      Google Sheets mirror adapter (one-way; Postgres stays the record)
 src/server/jobs/        background scheduled jobs
 src/components/ui/      shadcn primitives
 src/components/shared/  app-wide composed components
@@ -257,6 +258,24 @@ config edit, not a code change.
   configured 40 / 40 / 20 (SystemConfig `payment_schedule_default`).
 - **Q-03 — Nominated Sales Manager / single Super Admin:** `TODO-BUSINESS`
   (placeholder accounts seeded; to be named by the business).
+
+---
+
+## Google Sheets mirror
+
+Every lead is also written to a shared Google Sheet, one row each, for Sales, Data Management,
+Finance and the Super Admin to read. **It is a one-way mirror, not the database** — Postgres
+remains the system of record, because a spreadsheet cannot enforce the unique Transaction ID
+(rule 9), exact Decimal money (rule 2), the append-only audit trail (rule 5), "Finance sees
+nothing unapproved" (rule 1) or the FR-REC-09 immutability triggers. Nothing is ever read back
+from the sheet.
+
+Off by default (`SHEETS_PROVIDER` unset). Setup and behaviour: `docs/GOOGLE_SHEETS_MIRROR.md`.
+
+The sync is queued via `sheet_sync_outbox` **inside the same transaction** as the change, and
+written out of band by the daily job — so Google being down can never fail or delay a
+salesperson's save. `advanceLeadStatus` is the single enqueue point, so any new mutation path
+is mirrored automatically.
 
 ---
 

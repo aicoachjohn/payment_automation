@@ -14,6 +14,7 @@ import { db } from "@/server/db";
 import { notifyUser, sendEmail } from "@/server/notifications";
 import { getConfigNumber, getConfigValue } from "@/server/services/system-config";
 import { runOnce } from "@/server/jobs/runner";
+import { drainSheetSync } from "@/server/services/sheet-sync";
 import type { Actor } from "@/server/auth/permissions";
 import { IST_OFFSET_MS, istDayStartUtc, istDateKey, daysSinceIst, downPaymentDeadline } from "@/lib/ist";
 
@@ -47,15 +48,26 @@ export interface AutomationSummary {
   followUpsDue: number;
   ageingEscalations: number;
   reconciliationExceptions: number;
+  /** Leads mirrored to the Google Sheet on this run. */
+  sheetRowsSynced: number;
 }
 
 export async function runDailyAutomation(now: Date = new Date()): Promise<AutomationSummary> {
-  const summary: AutomationSummary = { remindersSent: 0, approachingAlerts: 0, overdueAlerts: 0, staleNudges: 0, followUpsDue: 0, ageingEscalations: 0, reconciliationExceptions: 0 };
+  const summary: AutomationSummary = { remindersSent: 0, approachingAlerts: 0, overdueAlerts: 0, staleNudges: 0, followUpsDue: 0, ageingEscalations: 0, reconciliationExceptions: 0, sheetRowsSynced: 0 };
   await fifteenDayRule(now, summary);
   await staleTriggers(now, summary);
   await followUpDue(now, summary);
   await ageingEscalation(now, summary);
   await reconciliationPass(now, summary);
+
+  // Mirror queued leads to the Google Sheet. Deliberately last and deliberately swallowed:
+  // a Sheets outage is a visibility problem, never a reason to fail the night's automation.
+  try {
+    const drained = await drainSheetSync();
+    summary.sheetRowsSynced = drained.written;
+  } catch {
+    /* stays PENDING in the outbox and retries on the next run */
+  }
   return summary;
 }
 

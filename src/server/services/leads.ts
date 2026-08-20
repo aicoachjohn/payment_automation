@@ -30,6 +30,7 @@ import { money, round, sub, sum, calculateBalance, type Money } from "@/server/m
 import { calculateFee, getConcessionThreshold, applyConcession } from "@/server/services/pricing";
 import { computeLeadStatus, computeApprovalState } from "@/server/services/lead-status";
 import { notifyUser } from "@/server/notifications";
+import { enqueueLeadSync } from "@/server/services/sheet-sync";
 
 export class LeadError extends Error {
   readonly code = "LEAD_ERROR";
@@ -150,6 +151,8 @@ export async function createLead(
       changes: [{ field: "status", oldValue: null, newValue: LeadStatus.NEW_LEAD }],
       actor,
     });
+    // A brand-new lead never reaches advanceLeadStatus, so it is queued explicitly.
+    await enqueueLeadSync(tx, lead.id, "lead-created");
     return lead;
   });
   return { id: created.id };
@@ -542,6 +545,12 @@ export async function advanceLeadStatus(tx: DbTx, leadId: string, actor: Actor):
       actor,
     });
   }
+
+  // Mirror to the Google Sheet. This runs after EVERY relevant mutation — which is exactly
+  // why the hook lives here rather than at fifteen call sites where one would eventually be
+  // forgotten. Queued inside this transaction; the sheet is written out of band, so Google
+  // can never fail or delay the save (see sheet-sync).
+  await enqueueLeadSync(tx, leadId, "lead-changed");
   return computed;
 }
 

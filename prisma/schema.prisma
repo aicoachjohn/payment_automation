@@ -566,6 +566,27 @@ model SystemConfig {
 /// A durable, idempotent record of one job execution (Phase 10 automation engine). The
 /// UNIQUE `dedupe_key` — job + entity + IST date — is what makes "run the daily job
 /// twice" send exactly one reminder / perform exactly one transfer (FR job idempotency).
+/// Outbox for the Google Sheets mirror.
+///
+/// A row is written INSIDE the same transaction as the change that caused it, so a Google
+/// outage can never fail or slow down a salesperson saving a lead — it just queues. The
+/// sheet is a one-way mirror for visibility; Postgres remains the system of record, which is
+/// what keeps unique Transaction IDs, exact Decimal money and the append-only audit trail.
+model SheetSyncOutbox {
+  id        String    @id @default(cuid()) @map("outbox_id")
+  leadId    String    @map("lead_id")
+  reason    String
+  status    String    @default("PENDING")
+  attempts  Int       @default(0)
+  lastError String?   @map("last_error")
+  createdAt DateTime  @default(now()) @map("created_at")
+  syncedAt  DateTime? @map("synced_at")
+
+  @@index([status, createdAt])
+  @@index([leadId])
+  @@map("sheet_sync_outbox")
+}
+
 model JobRun {
   id        String   @id @default(cuid()) @map("job_run_id")
   jobName   String   @map("job_name")
