@@ -26,8 +26,13 @@ export default async function FinanceStatementPage({
   // Outcome of a sign-off just made, handed over as a query param so it outlives the card.
   const done = sp.done?.slice(0, 200);
   const today = todayIso();
+  // Default to the CURRENT MONTH, not today. The statement filters on the date printed on
+  // the proof, which is routinely days before the payment is captured and audited — so a
+  // same-day default showed an empty table while the tiles above reported money approved
+  // today, which reads as a broken screen.
+  const monthStart = `${today.slice(0, 7)}-01`;
   const filters: StatementFilters = {
-    from: sp.from || today,
+    from: sp.from || monthStart,
     to: sp.to || today,
     paymentType: (sp.paymentType as PaymentType) || undefined,
     typeGroup: (sp.typeGroup as "holding" | "followup") || undefined,
@@ -134,10 +139,10 @@ export default async function FinanceStatementPage({
 
       {/* Filters (FR-FIN-02) */}
       <form method="GET" className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-        <label className="flex flex-col gap-1 text-xs text-slate-500">From
+        <label className="flex flex-col gap-1 text-xs text-slate-500">Payment date from
           <input type="date" name="from" defaultValue={filters.from} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800" />
         </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-500">To
+        <label className="flex flex-col gap-1 text-xs text-slate-500">Payment date to
           <input type="date" name="to" defaultValue={filters.to} className="rounded-md border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800" />
         </label>
         <label className="flex flex-col gap-1 text-xs text-slate-500">Payment type
@@ -197,7 +202,15 @@ export default async function FinanceStatementPage({
           </thead>
           <tbody>
             {statement.rows.length === 0 && (
-              <tr><td colSpan={STATEMENT_COLUMNS.length + 2} className="px-3 py-6 text-center text-slate-500">No approved payments for this selection.</td></tr>
+              <tr>
+                <td colSpan={STATEMENT_COLUMNS.length + 2} className="px-3 py-6 text-center text-slate-500">
+                  No approved payments dated between {formatDate(filters.from!)} and {formatDate(filters.to!)}.
+                  <span className="mt-1 block text-xs">
+                    This filters on the date printed on the payment proof, which is often earlier than the day it was
+                    approved. Widen the dates above to see more.
+                  </span>
+                </td>
+              </tr>
             )}
             {statement.rows.map((r) => (
               <tr key={r.id} className="border-t border-slate-100 dark:border-slate-800">
