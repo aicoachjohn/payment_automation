@@ -1,16 +1,27 @@
 /**
- * Operations handover (Phase 10, FR-SAL-67..71, BR-12). Assembles ONE consolidated
- * learner/payment record — never fragments — and refuses to hand over until every
- * required field is present, naming EXACTLY what is missing (FR-SAL-69). The same
- * validator and record shape serve both the MANUAL (fully-paid) and AUTO_DAY15 handovers.
+ * Handover chain: Sales → Data Management → Finance (business decision; see CLAUDE.md).
+ *
+ * ONE consolidated learner/payment record — never fragments — moves along a two-stage chain.
+ * Sales assemble it and submit it to Nandhiya; she approves the payments on it and passes it
+ * to Rajesh. Each stage is gated only by what THAT role owns, which is the point: Sales were
+ * previously blocked by "no approved payment" and "an outstanding balance remains", neither
+ * of which is theirs to fix, so the button could never succeed for them.
+ *
+ *   · salesMissing    — the record Sales are responsible for assembling (FR-SAL-67/68/69).
+ *   · dataMgmtMissing — every payment audited, which is Nandhiya's desk.
+ *
+ * A balance may still be outstanding when it reaches Finance; Rajesh sees the balance and
+ * chases it. Nothing here bypasses the audit gate — a payment still only reaches Finance's
+ * statement once APPROVED (BR-15).
  */
 import "server-only";
-import { AuditStatus, HandoverType, Role } from "@prisma/client";
+import { AuditStatus, HandoverStage, HandoverType, Role, UserStatus } from "@prisma/client";
 import { db } from "@/server/db";
 import { writeAudit } from "@/server/audit";
-import { requireRecordAccess, type Actor } from "@/server/auth/permissions";
-import { calculateBalance, lte, gt, money, sum, round, formatINR } from "@/server/money";
-import { isBasicComplete } from "@/server/services/leads";
+import { requireRecordAccess, requirePermission, type Actor } from "@/server/auth/permissions";
+import { calculateBalance, gt, money, sum, round, formatINR } from "@/server/money";
+import { isBasicComplete, advanceLeadStatus } from "@/server/services/leads";
+import { notifyUser } from "@/server/notifications";
 
 export class HandoverError extends Error {
   readonly code = "HANDOVER_ERROR";
@@ -27,8 +38,14 @@ export interface HandoverRecord {
 
 export interface HandoverSnapshot {
   record: HandoverRecord;
-  complete: boolean;
-  missing: string[];
+  /** Blockers Sales must clear before submitting to Data Management. */
+  salesMissing: string[];
+  /** Blockers Nandhiya must clear before passing it to Finance. */
+  dataMgmtMissing: string[];
+  /** Sales may submit. */
+  readyForDataMgmt: boolean;
+  /** Nandhiya may pass it on. */
+  readyForFinance: boolean;
 }
 
 /** Assemble the consolidated record and validate completeness (FR-SAL-67/68/69). */
@@ -60,39 +77,46 @@ export async function buildHandoverSnapshot(enrollmentId: string): Promise<Hando
     sales: { salesperson: l.salesperson.name, leadSource: l.leadSource, enrollmentDate: l.createdAt.toISOString(), remarks: l.remarks },
   };
 
-  // Validation (FR-SAL-68): name EXACTLY what is missing (FR-SAL-69).
-  const missing: string[] = [];
-  if (!isBasicComplete(l)) missing.push("Complete basic details (name, DOB, full address, email, mobile)");
-  if (!e.program || !e.plan) missing.push("Course and plan");
-  if (!e.finalApprovedFee) missing.push("Final approved fee");
-  if (!e.commencingDate) missing.push("Commencing date");
-  // Say WHO the record is waiting on. "At least one approved payment" reads as a missing
-  // field the salesperson could go and supply, when in fact the work has moved to Data
-  // Management and there is nothing for Sales to do.
-  const awaiting = e.payments.filter(
-    (p) => p.auditStatus === AuditStatus.PENDING_AUDIT || p.auditStatus === AuditStatus.RESUBMITTED,
+  // ── Stage 1: what SALES own (FR-SAL-68/69) ─────────────────────────────────
+  // Deliberately says nothing about audit status or the balance. Those belong to the next
+  // stage, and blocking Sales on them left them staring at an error they could not act on.
+  const salesMissing: string[] = [];
+  if (!isBasicComplete(l)) salesMissing.push("Complete basic details (name, DOB, full address, email, mobile)");
+  if (!e.program || !e.plan) salesMissing.push("Course and plan");
+  if (!e.finalApprovedFee) salesMissing.push("Final approved fee");
+  if (!e.commencingDate) salesMissing.push("Commencing date");
+  if (e.payments.length === 0) {
+    salesMissing.push("At least one payment recorded with its proof");
+  } else {
+    for (const p of e.payments) {
+      if (!p.transactionId?.trim()) salesMissing.push(`Transaction ID (payment #${p.paymentNumber})`);
+      if (p.proofs.length === 0) salesMissing.push(`Payment screenshot (payment #${p.paymentNumber})`);
+    }
+  }
+
+  // ── Stage 2: what DATA MANAGEMENT own ──────────────────────────────────────
+  // Nandhiya passes it on once her desk is clear: nothing still open, and at least one
+  // payment actually approved. An outstanding balance is fine — Finance chases it.
+  const dataMgmtMissing: string[] = [];
+  const stillOpen = e.payments.filter(
+    (p) =>
+      p.auditStatus === AuditStatus.PENDING_AUDIT ||
+      p.auditStatus === AuditStatus.RESUBMITTED ||
+      p.auditStatus === AuditStatus.CORRECTION_REQUIRED,
   );
-  if (approved.length === 0) {
-    missing.push(
-      awaiting.length > 0
-        ? `Nandhiya's approval of payment #${awaiting.map((p) => p.paymentNumber).join(", #")} (with Data Management now — nothing for Sales to do)`
-        : "At least one approved payment",
+  if (stillOpen.length > 0) {
+    dataMgmtMissing.push(
+      `Audit decision on payment #${stillOpen.map((p) => p.paymentNumber).join(", #")}`,
     );
   }
-  for (const p of approved) {
-    if (!p.transactionId?.trim()) missing.push(`Transaction ID (payment #${p.paymentNumber})`);
-    if (p.proofs.length === 0) missing.push(`Payment screenshot (payment #${p.paymentNumber})`);
-  }
-  if (!lte(balance, "0")) missing.push("Full payment (an outstanding balance remains)");
+  if (approved.length === 0) dataMgmtMissing.push("At least one approved payment");
 
-  // A pending payment that would push the approved total above the fee can NEVER be approved
-  // (FR-REC-04), so "waiting for Nandhiya" is a dead end — and listing only the two symptoms
-  // above sends the salesperson to wait for something that will never arrive. Name the
-  // payment, the gap, and the way out.
+  // A payment above the fee can never be approved (FR-REC-04), so name it and the way out
+  // rather than leaving Nandhiya to discover it one failed approval at a time.
   if (e.finalApprovedFee) {
-    for (const p of awaiting) {
+    for (const p of stillOpen) {
       if (gt(round(money(totalReceived).plus(p.receivedAmount)), e.finalApprovedFee.toString())) {
-        missing.push(
+        dataMgmtMissing.push(
           `Payment #${p.paymentNumber} (${formatINR(p.receivedAmount.toString())}) is more than the Final Approved Fee ` +
             `(${formatINR(e.finalApprovedFee.toString())}), so it cannot be approved as it stands — if the course is wrong, ` +
             "ask a Sales Manager or the Super Admin to unlock the fee so Sales can correct it",
@@ -101,22 +125,44 @@ export async function buildHandoverSnapshot(enrollmentId: string): Promise<Hando
     }
   }
 
-  return { record, complete: missing.length === 0, missing };
+  return {
+    record,
+    salesMissing,
+    dataMgmtMissing,
+    readyForDataMgmt: salesMissing.length === 0,
+    readyForFinance: salesMissing.length === 0 && dataMgmtMissing.length === 0,
+  };
 }
 
 /**
- * Perform a MANUAL handover (FR-SAL-70). Validates first; if anything is missing it BLOCKS
- * and names the exact fields (FR-SAL-69). On success returns the confirmation string
- * exactly as specified. The AUTO_DAY15 handover is created by the 15-day rule directly.
+ * Stage 1 — Sales submit the assembled record to Data Management (FR-SAL-70).
+ *
+ * Gated ONLY on what Sales own. Whether the payments are approved, and whether anything is
+ * still outstanding, is Nandhiya's business at the next stage.
  */
-export async function performHandover(actor: Actor, enrollmentId: string): Promise<{ message: string; handoverId: string }> {
+export async function submitToDataMgmt(
+  actor: Actor,
+  enrollmentId: string,
+): Promise<{ message: string; handoverId: string }> {
   const e = await db.enrollment.findUnique({ where: { id: enrollmentId }, include: { lead: true } });
   if (!e) throw new HandoverError("Enrollment not found.");
   requireRecordAccess(actor, e.lead);
 
+  const existing = await db.operationsHandover.findFirst({
+    where: { enrollmentId },
+    orderBy: { createdAt: "desc" },
+  });
+  if (existing) {
+    throw new HandoverError(
+      existing.stage === HandoverStage.WITH_FINANCE
+        ? "This learner has already been handed over to Finance."
+        : "This learner is already with Data Management for approval.",
+    );
+  }
+
   const snapshot = await buildHandoverSnapshot(enrollmentId);
-  if (!snapshot.complete) {
-    throw new HandoverError(`Handover blocked. Missing: ${snapshot.missing.join("; ")}.`);
+  if (!snapshot.readyForDataMgmt) {
+    throw new HandoverError(`Handover blocked. Missing: ${snapshot.salesMissing.join("; ")}.`);
   }
 
   const handover = await db.$transaction(async (tx) => {
@@ -124,6 +170,7 @@ export async function performHandover(actor: Actor, enrollmentId: string): Promi
       data: {
         enrollmentId,
         handoverType: HandoverType.MANUAL,
+        stage: HandoverStage.WITH_DATA_MGMT,
         validatedFlag: true,
         handoverDate: new Date(),
         generatedBy: actor.userId,
@@ -133,20 +180,100 @@ export async function performHandover(actor: Actor, enrollmentId: string): Promi
     await writeAudit(tx, {
       entityType: "Enrollment",
       entityId: enrollmentId,
-      action: "OPERATIONS_HANDOVER_MANUAL",
-      changes: [{ field: "handoverType", oldValue: null, newValue: HandoverType.MANUAL }],
+      action: "HANDOVER_TO_DATA_MGMT",
+      changes: [{ field: "stage", oldValue: null, newValue: HandoverStage.WITH_DATA_MGMT }],
       actor,
     });
     return h;
   });
 
-  // FR-SAL-70: the exact confirmation string.
-  return { message: "Handover Successfully Sent.", handoverId: handover.id };
+  const auditors = await db.user.findMany({
+    where: { role: Role.DATA_MGMT_AUDITOR, status: UserStatus.ACTIVE },
+    select: { id: true, email: true },
+  });
+  for (const a of auditors) {
+    await notifyUser({
+      recipientId: a.id,
+      recipientEmail: a.email,
+      type: "HANDOVER_RECEIVED",
+      subject: `Handover to review — ${e.lead.fullName}`,
+      body: `${e.lead.fullName} has been handed over by Sales for your approval.`,
+      relatedEntityType: "Enrollment",
+      relatedEntityId: enrollmentId,
+    });
+  }
+
+  return { message: "Handed over to Nandhiya (Data Management).", handoverId: handover.id };
+}
+
+/**
+ * Stage 2 — Data Management pass the record to Finance, once every payment on it has been
+ * audited and at least one approved. A balance may remain; Rajesh sees it and chases it.
+ */
+export async function submitToFinance(
+  actor: Actor,
+  handoverId: string,
+): Promise<{ message: string; handoverId: string }> {
+  requirePermission(actor, "payment:audit"); // DATA_MGMT_AUDITOR only
+  const h = await db.operationsHandover.findUnique({
+    where: { id: handoverId },
+    include: { enrollment: { include: { lead: true } } },
+  });
+  if (!h) throw new HandoverError("Handover not found.");
+  if (h.stage === HandoverStage.WITH_FINANCE) {
+    throw new HandoverError("This learner has already been handed over to Finance.");
+  }
+
+  const snapshot = await buildHandoverSnapshot(h.enrollmentId);
+  if (!snapshot.readyForFinance) {
+    throw new HandoverError(
+      `Cannot pass this to Finance yet. Outstanding: ${snapshot.dataMgmtMissing.join("; ")}.`,
+    );
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.operationsHandover.update({
+      where: { id: handoverId },
+      data: {
+        stage: HandoverStage.WITH_FINANCE,
+        passedToFinanceBy: actor.userId,
+        passedToFinanceAt: new Date(),
+        // Re-snapshot: the payments have been audited since Sales assembled it.
+        snapshot: snapshot.record as object,
+      },
+    });
+    await writeAudit(tx, {
+      entityType: "Enrollment",
+      entityId: h.enrollmentId,
+      action: "HANDOVER_TO_FINANCE",
+      changes: [{ field: "stage", oldValue: HandoverStage.WITH_DATA_MGMT, newValue: HandoverStage.WITH_FINANCE }],
+      actor,
+    });
+    await advanceLeadStatus(tx, h.enrollment.leadId, actor);
+  });
+
+  const finance = await db.user.findMany({
+    where: { role: Role.FINANCE_REVIEWER, status: UserStatus.ACTIVE },
+    select: { id: true, email: true },
+  });
+  for (const f of finance) {
+    await notifyUser({
+      recipientId: f.id,
+      recipientEmail: f.email,
+      type: "HANDOVER_RECEIVED",
+      subject: `Handover approved — ${h.enrollment.lead.fullName}`,
+      body: `${h.enrollment.lead.fullName} has been approved by Data Management and handed over to Finance.`,
+      relatedEntityType: "Enrollment",
+      relatedEntityId: h.enrollmentId,
+    });
+  }
+
+  return { message: "Handed over to Rajesh (Finance).", handoverId };
 }
 
 /** The consolidated record for a handover, available to Nandhiya, Rajesh, managers, SA
  *  and the owning salesperson (FR-SAL-71). */
-export async function getHandover(actor: Actor, handoverId: string): Promise<{ id: string; type: string; validated: boolean; handoverDate: string | null; record: HandoverRecord; missing: string[] }> {
+export async function getHandover(actor: Actor, handoverId: string): Promise<{ id: string; enrollmentId: string; type: string; stage: HandoverStage; validated: boolean; handoverDate: string | null; record: HandoverRecord; missing: string[] }> {
   const h = await db.operationsHandover.findUnique({
     where: { id: handoverId },
     include: { enrollment: { include: { lead: true } } },
@@ -156,7 +283,9 @@ export async function getHandover(actor: Actor, handoverId: string): Promise<{ i
   const validationErrors = (h.validationErrors as { missing?: string[] } | null) ?? null;
   return {
     id: h.id,
+    enrollmentId: h.enrollmentId,
     type: h.handoverType,
+    stage: h.stage,
     validated: h.validatedFlag,
     handoverDate: h.handoverDate?.toISOString() ?? null,
     record: h.snapshot as unknown as HandoverRecord,
@@ -165,7 +294,7 @@ export async function getHandover(actor: Actor, handoverId: string): Promise<{ i
 }
 
 /** List handovers visible to the actor (all for staff roles; own leads for a salesperson). */
-export async function listHandovers(actor: Actor): Promise<{ id: string; learner: string; type: string; validated: boolean; handoverDate: string | null }[]> {
+export async function listHandovers(actor: Actor): Promise<{ id: string; learner: string; type: string; stage: HandoverStage; validated: boolean; handoverDate: string | null }[]> {
   const staff = actor.role === Role.DATA_MGMT_AUDITOR || actor.role === Role.FINANCE_REVIEWER || actor.role === Role.SUPER_ADMIN || actor.role === Role.SALES_MANAGER;
   const rows = await db.operationsHandover.findMany({
     where: staff ? {} : { enrollment: { lead: { salespersonId: actor.userId } } },
@@ -173,5 +302,5 @@ export async function listHandovers(actor: Actor): Promise<{ id: string; learner
     orderBy: { createdAt: "desc" },
     take: 200,
   });
-  return rows.map((h) => ({ id: h.id, learner: h.enrollment.lead.fullName, type: h.handoverType, validated: h.validatedFlag, handoverDate: h.handoverDate?.toISOString() ?? null }));
+  return rows.map((h) => ({ id: h.id, learner: h.enrollment.lead.fullName, type: h.handoverType, stage: h.stage, validated: h.validatedFlag, handoverDate: h.handoverDate?.toISOString() ?? null }));
 }

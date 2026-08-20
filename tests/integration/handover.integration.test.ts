@@ -1,13 +1,17 @@
 // @vitest-environment node
 /**
- * Phase 10 — Operations handover (FR-SAL-67..71, BR-12) + the Day-15 transfer's fan-out.
- *   Verify #6: a handover on an enrollment missing a Transaction ID is blocked and names
- *   that EXACT field. Plus: a complete handover returns exactly "Handover Successfully
- *   Sent."; and the automatic Day-15 transfer notifies the salesperson, Sales Manager,
- *   Nandhiya and Rajesh and creates the consolidated Operations record.
+ * The handover chain: Sales → Data Management → Finance.
+ *
+ * The rule that matters most here is that each stage is gated only by what THAT role owns.
+ * Sales were previously blocked by "no approved payment" and "an outstanding balance
+ * remains" — neither of which they can fix — so the button could never succeed for them.
+ * Nandhiya's gate is her own desk: every payment audited.
+ *
+ * Also covers the removal of the Day-15 auto-transfer: an overdue down payment now alerts
+ * everyone but must NOT move the record on its own.
  */
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import { PrismaClient, Role, PaymentMethod, AuditStatus } from "@prisma/client";
+import { PrismaClient, Role, PaymentMethod } from "@prisma/client";
 import { loadEnv } from "../e2e/helpers/env";
 
 loadEnv();
@@ -17,7 +21,7 @@ const leads = await import("@/server/services/leads");
 const { generateDraft } = await import("@/server/services/draft");
 const { uploadProof, capturePayment } = await import("@/server/services/payments");
 const { approvePayment } = await import("@/server/services/audit-decisions");
-const { performHandover, buildHandoverSnapshot, HandoverError } = await import("@/server/services/handover");
+const { submitToDataMgmt, submitToFinance, buildHandoverSnapshot, HandoverError } = await import("@/server/services/handover");
 const automation = await import("@/server/services/automation");
 
 const prisma = new PrismaClient();
@@ -45,22 +49,18 @@ async function capture(leadId: string, amount: string, txn: string, date: string
   return cap.paymentId;
 }
 
-/** A fully-paid, complete enrollment ready for a MANUAL handover. */
-async function seedFullyPaid(): Promise<{ leadId: string; enrollmentId: string; fee: number }> {
+/** Sales have done their part: complete record, one payment captured, NOT yet audited. */
+async function seedUnapproved(): Promise<{ leadId: string; enrollmentId: string }> {
   n += 1;
-  const { id } = await leads.createLead(mathiew, { fullName: `${DETAILS.fullName} ${n}`, leadSource: TAG });
+  const { id } = await leads.createLead(mathiew, { fullName: `${DETAILS.fullName} U${n}`, leadSource: TAG });
   await leads.markInterested(mathiew, id);
-  await leads.updateBasicDetails(mathiew, id, { ...DETAILS, fullName: `${DETAILS.fullName} ${n}`, email: `ho${n}@example.com`, mobile: `91${String(600000000 + n)}` });
+  await leads.updateBasicDetails(mathiew, id, { ...DETAILS, fullName: `${DETAILS.fullName} U${n}`, email: `hou${n}@example.com`, mobile: `92${String(600000000 + n)}` });
   await leads.selectCourse(mathiew, id, { program: "COMBO_ALL_THREE", plan: "PREMIUM", comboMode: "DOUBLE_SHOT", commencingDate: new Date("2026-05-01").toISOString() });
   await generateDraft(mathiew, id);
   const e = await prisma.enrollment.findUniqueOrThrow({ where: { leadId: id } });
-  const fee = Number(e.finalApprovedFee);
-  const half = (fee / 2).toFixed(2);
-  const p1 = await capture(id, half, `HO${n}A`, "2026-05-02");
-  await approvePayment(nandhiya, p1, { confirmations: OK, varianceReason: "ok" });
-  const p2 = await capture(id, (fee - Number(half)).toFixed(2), `HO${n}B`, "2026-05-03");
-  await approvePayment(nandhiya, p2, { confirmations: OK, varianceReason: "ok" });
-  return { leadId: id, enrollmentId: e.id, fee };
+  // A part payment, so a balance deliberately remains.
+  await capture(id, "5000.00", `HOU${n}`, "2026-05-02");
+  return { leadId: id, enrollmentId: e.id };
 }
 
 async function cleanup() {
@@ -86,69 +86,80 @@ beforeAll(async () => {
 });
 afterAll(async () => { await cleanup(); await prisma.$disconnect(); });
 
-describe("Verify #6 — a blocked handover names the exact missing field", () => {
-  it("missing Transaction ID → error names 'Transaction ID'", async () => {
-    const s = await seedFullyPaid();
-    // Complete first → success with the exact confirmation string.
-    const ok = await performHandover(mathiew, s.enrollmentId);
-    expect(ok.message).toBe("Handover Successfully Sent.");
-
-    // Simulate a record missing its Transaction ID. The approved-payment immutability
-    // trigger (correctly) freezes the Txn ID, so we clear `locked` first — a test-only
-    // manipulation to reach the state the validator must catch.
-    const approved = await prisma.payment.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId, auditStatus: AuditStatus.APPROVED }, orderBy: { paymentNumber: "asc" } });
-    await prisma.payment.update({ where: { id: approved.id }, data: { locked: false } });
-    await prisma.payment.update({ where: { id: approved.id }, data: { transactionId: "" } });
+describe("stage 1 — Sales submit to Data Management", () => {
+  it("goes through with payments still PENDING and a balance outstanding", async () => {
+    // The bug this pins: Sales were blocked by "at least one approved payment" and "an
+    // outstanding balance remains", which are Nandhiya's job, so they could never submit.
+    const s = await seedUnapproved();
     const snap = await buildHandoverSnapshot(s.enrollmentId);
+    expect(snap.readyForDataMgmt, "Sales' own record is complete").toBe(true);
+    expect(snap.dataMgmtMissing.length, "but Nandhiya still has work").toBeGreaterThan(0);
 
-    let msg = "";
-    try { await performHandover(mathiew, s.enrollmentId); } catch (e) { msg = (e as Error).message; }
-    console.log(`\n  [#6] complete → "${ok.message}"; missing-txn error → "${msg}"`);
-    expect(snap.complete).toBe(false);
-    expect(msg).toMatch(/Transaction ID/i);
-    expect(msg).toContain(`payment #${approved.paymentNumber}`);
+    const res = await submitToDataMgmt(mathiew, s.enrollmentId);
+    expect(res.message).toMatch(/Nandhiya/i);
+
+    const h = await prisma.operationsHandover.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId } });
+    expect(h.stage).toBe("WITH_DATA_MGMT");
   });
 
-  it("a pending payment ABOVE the fee is named as unapprovable, not left as 'waiting for audit'", async () => {
-    // The trap this catches: a payment larger than the fee can never be approved (FR-REC-04),
-    // so listing only "at least one approved payment" tells the salesperson to wait for
-    // something that will never come. The blocker must name the payment and the way out.
-    const s = await seedFullyPaid();
-    const e = await prisma.enrollment.findUniqueOrThrow({ where: { id: s.enrollmentId } });
-    const fee = Number(e.finalApprovedFee);
-
-    // Reset to a single pending payment worth more than the whole fee.
-    await prisma.payment.updateMany({ where: { enrollmentId: s.enrollmentId }, data: { locked: false } });
-    await prisma.payment.updateMany({ where: { enrollmentId: s.enrollmentId }, data: { auditStatus: AuditStatus.REJECTED } });
-    const first = await prisma.payment.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId }, orderBy: { paymentNumber: "asc" } });
-    await prisma.payment.update({
-      where: { id: first.id },
-      data: { auditStatus: AuditStatus.PENDING_AUDIT, receivedAmount: (fee + 5000).toFixed(2) },
-    });
-
-    const snap = await buildHandoverSnapshot(s.enrollmentId);
-    const blocker = snap.missing.find((m) => /cannot be approved as it stands/i.test(m));
-    console.log(`  [#6c] over-fee blocker -> "${blocker}"`);
-    expect(snap.complete).toBe(false);
-    expect(blocker, "the blocker must name the unapprovable payment").toBeTruthy();
-    expect(blocker).toContain(`Payment #${first.paymentNumber}`);
-    expect(blocker, "and point at the remedy that actually exists").toMatch(/unlock the fee/i);
-  });
-
-  it("missing commencing date → error names 'Commencing date'", async () => {
-    const s = await seedFullyPaid();
+  it("still blocks on what Sales DO own, naming the exact field", async () => {
+    const s = await seedUnapproved();
     await prisma.enrollment.update({ where: { id: s.enrollmentId }, data: { commencingDate: null } });
     let msg = "";
-    try { await performHandover(mathiew, s.enrollmentId); } catch (e) { msg = (e as Error).message; }
-    console.log(`  [#6b] missing commencing date → "${msg}"`);
+    try { await submitToDataMgmt(mathiew, s.enrollmentId); } catch (e) { msg = (e as Error).message; }
     expect(msg).toMatch(/Commencing date/i);
     expect(() => { throw new HandoverError("x"); }).toThrow();
   });
+
+  it("refuses a second submission of the same learner", async () => {
+    const s = await seedUnapproved();
+    await submitToDataMgmt(mathiew, s.enrollmentId);
+    await expect(submitToDataMgmt(mathiew, s.enrollmentId)).rejects.toThrow(/already with Data Management/i);
+  });
 });
 
-describe("Day-15 auto-transfer notifies all the parties (FR-SAL-53/62)", () => {
-  it("salesperson, Sales Manager, Nandhiya and Rajesh are notified and a handover is recorded", async () => {
-    // Seed a started course with only the Course Starting Amount approved (down payment pending).
+describe("stage 2 — Data Management pass it to Finance", () => {
+  it("is refused while any payment is still awaiting audit", async () => {
+    const s = await seedUnapproved();
+    const { handoverId } = await submitToDataMgmt(mathiew, s.enrollmentId);
+    await expect(submitToFinance(nandhiya, handoverId)).rejects.toThrow(/Audit decision on payment/i);
+  });
+
+  it("goes through once every payment is approved — an outstanding balance is fine", async () => {
+    const s = await seedUnapproved();
+    const { handoverId } = await submitToDataMgmt(mathiew, s.enrollmentId);
+
+    // Approve the one payment. It is a part payment, so a balance REMAINS — that must not
+    // stop the record reaching Finance; Rajesh sees the balance and chases it.
+    const pending = await prisma.payment.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId } });
+    await approvePayment(nandhiya, pending.id, { confirmations: OK, varianceReason: "accepted" });
+
+    const snap = await buildHandoverSnapshot(s.enrollmentId);
+    expect(snap.readyForFinance).toBe(true);
+
+    const res = await submitToFinance(nandhiya, handoverId);
+    expect(res.message).toMatch(/Rajesh|Finance/i);
+
+    const h = await prisma.operationsHandover.findUniqueOrThrow({ where: { id: handoverId } });
+    expect(h.stage).toBe("WITH_FINANCE");
+    expect(h.passedToFinanceBy).toBe(nandhiya.userId);
+
+    // And there is still money owed — proving the gate really is "audited", not "fully paid".
+    const e = await prisma.enrollment.findUniqueOrThrow({ where: { id: s.enrollmentId } });
+    expect(Number(e.finalApprovedFee)).toBeGreaterThan(Number(pending.receivedAmount));
+  });
+
+  it("only Data Management may pass it on", async () => {
+    const s = await seedUnapproved();
+    const { handoverId } = await submitToDataMgmt(mathiew, s.enrollmentId);
+    await expect(submitToFinance(mathiew, handoverId)).rejects.toThrow();
+  });
+});
+
+describe("an overdue down payment alerts everyone but never moves the record", () => {
+  it("notifies Sales, the manager, Nandhiya and Rajesh — and creates NO handover", async () => {
+    // The Day-15 auto-transfer was removed: every handover is now submitted by a person.
+    // The chasing still has to happen, so the alert must survive the removal.
     n += 1;
     const { id } = await leads.createLead(mathiew, { fullName: `${DETAILS.fullName} T${n}`, leadSource: TAG });
     await leads.markInterested(mathiew, id);
@@ -168,13 +179,16 @@ describe("Day-15 auto-transfer notifies all the parties (FR-SAL-53/62)", () => {
     const notified = await prisma.notification.findMany({ where: { relatedEntityId: e.id, type: "DOWN_PAYMENT_OVERDUE" }, select: { recipientId: true } });
     const recipientRoles = await prisma.user.findMany({ where: { id: { in: notified.map((x) => x.recipientId) } }, select: { role: true } });
     const roles = new Set(recipientRoles.map((r) => r.role));
-    const handover = await prisma.operationsHandover.findFirst({ where: { enrollmentId: e.id } });
 
-    console.log(`\n  [transfer] notified roles: ${[...roles].join(", ")} + Operations record=${handover?.handoverType}`);
     expect(roles.has(Role.SALESPERSON)).toBe(true);
     expect(roles.has(Role.SALES_MANAGER)).toBe(true);
     expect(roles.has(Role.DATA_MGMT_AUDITOR)).toBe(true);
     expect(roles.has(Role.FINANCE_REVIEWER)).toBe(true);
-    expect(handover?.handoverType).toBe("AUTO_DAY15"); // the 5th party — Operations — receives the record
+
+    const handover = await prisma.operationsHandover.findFirst({ where: { enrollmentId: e.id } });
+    expect(handover, "nothing may hand itself over").toBeNull();
+
+    const lead = await prisma.lead.findUniqueOrThrow({ where: { id } });
+    expect(lead.status, "and the lead must not jump to OPERATIONS_HANDOVER").not.toBe("OPERATIONS_HANDOVER");
   });
 });

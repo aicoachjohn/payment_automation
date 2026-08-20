@@ -16,7 +16,7 @@ export function RunJobsButton() {
       const res = await runAutomationAction({});
       if (res?.data && "ok" in res.data && res.data.ok) {
         const s = res.data.summary;
-        setMsg(`Done — ${s.remindersSent} reminder(s), ${s.approachingAlerts} approaching alert(s), ${s.transfers} transfer(s), ${s.staleNudges} nudge(s), ${s.followUpsDue} follow-up(s), ${s.ageingEscalations} ageing escalation(s), ${s.reconciliationExceptions} reconciliation exception(s).`);
+        setMsg(`Done — ${s.remindersSent} reminder(s), ${s.approachingAlerts} approaching alert(s), ${s.overdueAlerts} overdue alert(s), ${s.staleNudges} nudge(s), ${s.followUpsDue} follow-up(s), ${s.ageingEscalations} ageing escalation(s), ${s.reconciliationExceptions} reconciliation exception(s).`);
       }
       router.refresh();
     });

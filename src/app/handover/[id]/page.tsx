@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import { requireAuth } from "@/server/auth/guard";
 import { AppShell } from "@/components/shared/app-shell";
 import { ROLE_HOME } from "@/server/auth/permissions";
-import { getHandover, HandoverError } from "@/server/services/handover";
+import { Role } from "@prisma/client";
+import { getHandover, buildHandoverSnapshot, HandoverError } from "@/server/services/handover";
+import { PassToFinance } from "../pass-to-finance";
 import { formatINR, formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,18 +21,29 @@ export default async function HandoverPage({ params }: { params: Promise<{ id: s
   }
   const r = h.record;
 
+  // Nandhiya's onward step. Her blockers are computed live rather than read from the snapshot,
+  // because she will have been approving payments since Sales assembled it.
+  const isAuditor = user.role === Role.DATA_MGMT_AUDITOR;
+  const withDataMgmt = h.stage === "WITH_DATA_MGMT";
+  const blockers = isAuditor && withDataMgmt
+    ? (await buildHandoverSnapshot(h.enrollmentId)).dataMgmtMissing
+    : [];
+
   return (
     <AppShell user={user} nav={[{ href: ROLE_HOME[user.role], label: "Dashboard" }]}>
       <section className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">Operations Handover — {r.learner.fullName}</h1>
+            <h1 className="text-2xl font-semibold">Handover — {r.learner.fullName}</h1>
             <p className="text-sm text-slate-500">
-              {h.type} · {h.validated ? "Validated" : "Incomplete"}{h.handoverDate ? ` · ${formatDate(h.handoverDate)}` : ""}
+              {withDataMgmt ? "With Data Management (Nandhiya)" : "With Finance (Rajesh)"}
+              {h.handoverDate ? ` · handed over ${formatDate(h.handoverDate)}` : ""}
             </p>
           </div>
           <a href={`/api/handover/${h.id}/pdf`} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Export PDF</a>
         </div>
+
+        {isAuditor && withDataMgmt && <PassToFinance handoverId={h.id} blockers={blockers} />}
 
         {h.missing.length > 0 && (
           <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">

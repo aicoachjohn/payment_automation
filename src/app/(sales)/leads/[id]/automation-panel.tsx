@@ -80,10 +80,11 @@ export function AutomationPanel({
       </section>
 
       <section className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-        <h2 className="mb-2 text-lg font-semibold">Operations handover</h2>
+        <h2 className="mb-2 text-lg font-semibold">Hand over to Data Management</h2>
         <p className="mb-3 text-sm text-slate-500">
-          Assemble the consolidated learner/payment record and send it to Operations. The handover is blocked until
-          every required field is present.
+          Send the consolidated learner/payment record to Nandhiya for approval. She checks each payment against its
+          proof and then passes it on to Rajesh in Finance. You do not need the payments approved or the balance
+          cleared first — that is her step.
         </p>
         {handoverMsg && (
           <p className="mb-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
@@ -92,7 +93,7 @@ export function AutomationPanel({
         )}
         {handoverErr && <p className="mb-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{handoverErr}</p>}
         <button onClick={handover} disabled={pending || !enrollmentId} className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900">
-          {pending ? "Working…" : "Send handover to Operations"}
+          {pending ? "Sending…" : "Submit handover to Nandhiya"}
         </button>
       </section>
     </div>

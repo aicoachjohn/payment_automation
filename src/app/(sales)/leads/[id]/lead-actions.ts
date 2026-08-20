@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { authActionClient } from "@/server/safe-action";
 import { followUpCreateSchema, taskIdSchema, handoverEnrollmentSchema } from "@/lib/schemas";
 import { createFollowUp, completeFollowUp, FollowUpError } from "@/server/services/follow-ups";
-import { performHandover, HandoverError } from "@/server/services/handover";
+import { submitToDataMgmt, HandoverError } from "@/server/services/handover";
 import { AuthorizationError } from "@/server/auth/permissions";
 
 function safe(e: unknown): { ok: false; error: string } {
@@ -36,12 +36,12 @@ export const completeFollowUpAction = authActionClient
     }
   });
 
-/** Trigger a MANUAL Operations handover. Blocks + names missing fields if incomplete. */
+/** Stage 1 of the handover chain: Sales submit the record to Data Management for approval. */
 export const performHandoverAction = authActionClient
   .schema(handoverEnrollmentSchema)
   .action(async ({ parsedInput, ctx }) => {
     try {
-      const res = await performHandover(ctx.actor, parsedInput.enrollmentId);
+      const res = await submitToDataMgmt(ctx.actor, parsedInput.enrollmentId);
       revalidatePath("/sales");
       return { ok: true as const, message: res.message, handoverId: res.handoverId };
     } catch (e) {

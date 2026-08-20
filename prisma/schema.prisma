@@ -110,7 +110,16 @@ enum PricingStatus {
 
 enum HandoverType {
   MANUAL
+  /// Retained only so historical rows still read. The day-15 auto-transfer was removed by
+  /// business decision — every handover is now submitted by a person.
   AUTO_DAY15
+}
+
+/// Where a handed-over enrollment currently sits. Sales submit it to Data Management for
+/// approval; once Nandhiya has cleared every payment she passes it on to Finance.
+enum HandoverStage {
+  WITH_DATA_MGMT
+  WITH_FINANCE
 }
 
 enum FinanceQueryStatus {
@@ -515,15 +524,20 @@ model FollowUpTask {
 }
 
 model OperationsHandover {
-  id               String       @id @default(cuid()) @map("handover_id")
-  enrollmentId     String       @map("enrollment_id")
-  handoverType     HandoverType @map("handover_type")
-  validatedFlag    Boolean      @default(false) @map("validated_flag")
-  validationErrors Json?        @map("validation_errors")
-  handoverDate     DateTime?    @map("handover_date")
-  generatedBy      String       @map("generated_by")
+  id               String        @id @default(cuid()) @map("handover_id")
+  enrollmentId     String        @map("enrollment_id")
+  handoverType     HandoverType  @map("handover_type")
+  /// Sales submit at WITH_DATA_MGMT; Nandhiya moves it to WITH_FINANCE once every payment
+  /// on the enrollment has been approved.
+  stage            HandoverStage @default(WITH_DATA_MGMT)
+  validatedFlag    Boolean       @default(false) @map("validated_flag")
+  validationErrors Json?         @map("validation_errors")
+  handoverDate     DateTime?     @map("handover_date")
+  generatedBy      String        @map("generated_by")
+  passedToFinanceBy String?      @map("passed_to_finance_by")
+  passedToFinanceAt DateTime?    @map("passed_to_finance_at")
   snapshot         Json?
-  createdAt        DateTime     @default(now()) @map("created_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
 
   enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
 

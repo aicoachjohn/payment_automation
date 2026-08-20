@@ -508,7 +508,16 @@ export async function advanceLeadStatus(tx: DbTx, leadId: string, actor: Actor):
     ? await tx.paymentDraft.findFirst({ where: { enrollmentId: enrollment.id } })
     : null;
 
+  // A record that has reached Finance is at the end of the pipeline. Read it from the
+  // handover chain so the status stays system-derived rather than being stamped by hand.
+  const handedToFinance = enrollment
+    ? (await tx.operationsHandover.count({
+        where: { enrollmentId: enrollment.id, stage: "WITH_FINANCE" },
+      })) > 0
+    : false;
+
   const computed = computeLeadStatus({
+    operationsHandover: handedToFinance,
     interested: lead.status !== LeadStatus.NEW_LEAD,
     basicDetailsComplete: isBasicMinimal(lead), // capture needs only name/mobile/email (handover stays strict)
     draftGenerated: Boolean(draft),

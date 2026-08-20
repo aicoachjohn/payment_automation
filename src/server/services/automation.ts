@@ -11,7 +11,6 @@
 import "server-only";
 import { AuditStatus, LeadStatus, Role } from "@prisma/client";
 import { db } from "@/server/db";
-import { writeAudit } from "@/server/audit";
 import { notifyUser, sendEmail } from "@/server/notifications";
 import { getConfigNumber, getConfigValue } from "@/server/services/system-config";
 import { runOnce } from "@/server/jobs/runner";
@@ -22,9 +21,6 @@ import { IST_OFFSET_MS, istDayStartUtc, istDateKey, daysSinceIst, downPaymentDea
 export { IST_OFFSET_MS, istDayStartUtc, istDateKey, daysSinceIst, downPaymentDeadline };
 
 const DAY_MS = 86_400_000;
-
-/** The automation acts with system authority; its audit rows resolve to "System". */
-const SYSTEM_ACTOR = { userId: "system", role: Role.SUPER_ADMIN } as const;
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -45,7 +41,8 @@ async function usersInRoles(roles: Role[]): Promise<{ id: string; email: string 
 export interface AutomationSummary {
   remindersSent: number;
   approachingAlerts: number;
-  transfers: number;
+  /** Down payments past the deadline that were alerted on (nothing is auto-transferred). */
+  overdueAlerts: number;
   staleNudges: number;
   followUpsDue: number;
   ageingEscalations: number;
@@ -53,7 +50,7 @@ export interface AutomationSummary {
 }
 
 export async function runDailyAutomation(now: Date = new Date()): Promise<AutomationSummary> {
-  const summary: AutomationSummary = { remindersSent: 0, approachingAlerts: 0, transfers: 0, staleNudges: 0, followUpsDue: 0, ageingEscalations: 0, reconciliationExceptions: 0 };
+  const summary: AutomationSummary = { remindersSent: 0, approachingAlerts: 0, overdueAlerts: 0, staleNudges: 0, followUpsDue: 0, ageingEscalations: 0, reconciliationExceptions: 0 };
   await fifteenDayRule(now, summary);
   await staleTriggers(now, summary);
   await followUpDue(now, summary);
@@ -127,11 +124,18 @@ async function fifteenDayRule(now: Date, summary: AutomationSummary): Promise<vo
     const deadline = downPaymentDeadline(c.anchor, windowDays);
     const dayKey = istDateKey(now);
 
-    // Past the deadline → automatic Operations transfer (FR-SAL-53, BR-10).
+    // Past the deadline → escalate by TELLING people, never by moving the record.
+    //
+    // This used to auto-transfer the lead to Operations (FR-SAL-53, BR-10). That rule was
+    // removed by business decision: every handover is now submitted by a person along the
+    // Sales → Data Management → Finance chain, so nothing may hand itself over. The overdue
+    // learner still has to be chased, so the alert stays — once per learner per day.
     if (now.getTime() > deadline.getTime()) {
-      const out = await runOnce("day15-transfer", `day15-transfer:${c.enrollmentId}`, () => transferToOperations(c, now));
-      if (out.ran) summary.transfers += 1;
-      continue; // no more reminders once transferred
+      const out = await runOnce("day15-overdue", `day15-overdue:${c.enrollmentId}:${dayKey}`, () =>
+        notifyDownPaymentOverdue(c, windowDays),
+      );
+      if (out.ran) summary.overdueAlerts += 1;
+      continue; // an overdue learner gets the alert, not the countdown reminders
     }
 
     // Reminder on the configured days (FR-SAL-51/56).
@@ -171,58 +175,27 @@ async function fifteenDayRule(now: Date, summary: AutomationSummary): Promise<vo
 }
 
 /**
- * Auto-transfer to Operations at end of Day 15 (FR-SAL-53, BR-10, BR-12). Sets the lead
- * status, records an Operations handover (the consolidated record IS Operations being
- * notified), and notifies the salesperson, Sales Manager, Nandhiya and Rajesh.
+ * Down payment past its deadline: alert the salesperson, their manager, Data Management and
+ * Finance. Purely a notification — the record does not move (see fifteenDayRule).
  */
-async function transferToOperations(c: Candidate, now: Date): Promise<{ handoverId: string }> {
-  const { buildHandoverSnapshot } = await import("@/server/services/handover");
-  const snapshot = await buildHandoverSnapshot(c.enrollmentId);
-
-  const handover = await db.$transaction(async (tx) => {
-    await tx.lead.update({ where: { id: c.leadId }, data: { status: LeadStatus.OPERATIONS_HANDOVER } });
-    const h = await tx.operationsHandover.create({
-      data: {
-        enrollmentId: c.enrollmentId,
-        handoverType: "AUTO_DAY15",
-        validatedFlag: snapshot.complete,
-        validationErrors: snapshot.complete ? undefined : { missing: snapshot.missing },
-        handoverDate: now,
-        generatedBy: SYSTEM_ACTOR.userId,
-        snapshot: snapshot.record,
-      },
-    });
-    await writeAudit(tx, {
-      entityType: "Lead",
-      entityId: c.leadId,
-      action: "OPERATIONS_TRANSFER",
-      changes: [
-        { field: "status", oldValue: LeadStatus.DOWN_PAYMENT_PENDING, newValue: LeadStatus.OPERATIONS_HANDOVER },
-        { field: "handoverType", oldValue: null, newValue: "AUTO_DAY15" },
-      ],
-      actor: SYSTEM_ACTOR,
-    });
-    return h;
-  });
-
+async function notifyDownPaymentOverdue(c: Candidate, windowDays: number): Promise<{ notified: number }> {
   const [managers, auditors, finance] = await Promise.all([
     usersInRoles([Role.SALES_MANAGER]),
     usersInRoles([Role.DATA_MGMT_AUDITOR]),
     usersInRoles([Role.FINANCE_REVIEWER]),
   ]);
-  const body = `The Down Payment for ${c.learnerName} was not received within the deadline. The lead has been automatically transferred to Operations.`;
-  const recipients = [
-    { id: c.salespersonId, email: c.salespersonEmail },
-    ...managers, ...auditors, ...finance,
-  ];
+  const recipients = [{ id: c.salespersonId, email: c.salespersonEmail }, ...managers, ...auditors, ...finance];
+  const body =
+    `The Down Payment for ${c.learnerName} was not received within the ${windowDays}-day deadline. ` +
+    "The enrollment has NOT been moved — someone needs to chase it.";
   for (const r of recipients) {
     await notifyUser({
       recipientId: r.id, recipientEmail: r.email, type: "DOWN_PAYMENT_OVERDUE",
-      subject: `Auto-transfer to Operations — ${c.learnerName}`, body,
+      subject: `Down payment overdue — ${c.learnerName}`, body,
       relatedEntityType: "Enrollment", relatedEntityId: c.enrollmentId,
     });
   }
-  return { handoverId: handover.id };
+  return { notified: recipients.length };
 }
 
 /**

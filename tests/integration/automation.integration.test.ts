@@ -153,16 +153,22 @@ describe("Verify #3 — the end-of-Day-15 IST boundary", () => {
     expect(await prisma.operationsHandover.count({ where: { enrollmentId: a.enrollmentId } })).toBe(0);
   });
 
-  it("down payment still unpaid past end of Day 15 → transfer DID happen at end of Day 15", async () => {
+  it("down payment still unpaid past end of Day 15 → the ALERT fires, the record stays put", async () => {
+    // The auto-transfer was removed; only a person moves a record now. The boundary is still
+    // the thing under test — it must be what triggers the alert.
     const anchor = anchorAt();
     const b = await seedStarted(anchor);
     const deadline = automation.downPaymentDeadline(anchor, 15);
     await automation.runDailyAutomation(new Date(deadline.getTime() + 5 * 60_000)); // 00:05 Day 16
     const leadB = await prisma.lead.findUniqueOrThrow({ where: { id: b.leadId } });
     const handoverB = await prisma.operationsHandover.findFirst({ where: { enrollmentId: b.enrollmentId } });
-    console.log(`\n  [#3b] unpaid → lead status=${leadB.status}, handover=${handoverB?.handoverType}`);
-    expect(leadB.status).toBe(LeadStatus.OPERATIONS_HANDOVER);
-    expect(handoverB?.handoverType).toBe("AUTO_DAY15");
+    const alerts = await prisma.notification.count({
+      where: { relatedEntityId: b.enrollmentId, type: "DOWN_PAYMENT_OVERDUE" },
+    });
+    console.log(`\n  [#3b] unpaid → lead status=${leadB.status}, handover=${handoverB ? "created" : "none"}, alerts=${alerts}`);
+    expect(alerts).toBeGreaterThan(0);
+    expect(handoverB, "nothing hands itself over").toBeNull();
+    expect(leadB.status).not.toBe(LeadStatus.OPERATIONS_HANDOVER);
   });
 });
 

@@ -166,7 +166,10 @@ describe("Business rules BR-01..BR-30 (UAT evidence)", () => {
     expect(countdowns.find((c) => c.leadId === notStarted.leadId)).toBeUndefined();
   });
 
-  it("BR-09/BR-10 — after course start, an unpaid down payment past Day 15 auto-transfers to Operations", async () => {
+  it("BR-09/BR-10 — an unpaid down payment past Day 15 alerts everyone but does NOT move the record", async () => {
+    // The Day-15 AUTO-TRANSFER was removed by business decision: handovers now travel
+    // Sales → Data Management → Finance and every hop is submitted by a person. The
+    // deadline itself still matters, so it must still raise the alarm.
     const { runDailyAutomation, downPaymentDeadline, istDayStartUtc } = await import("@/server/services/automation");
     const anchor = new Date(istDayStartUtc(new Date("2026-04-10T06:00:00Z")).getTime() + 10 * 3_600_000);
     const started = await newLead(mathiew, { courseStarted: true, commencingDate: new Date(anchor.getTime() - 86_400_000).toISOString() });
@@ -174,7 +177,14 @@ describe("Business rules BR-01..BR-30 (UAT evidence)", () => {
     await approvePayment(nandhiya, p1, { confirmations: OK, varianceReason: "ok" });
     await prisma.payment.update({ where: { id: p1 }, data: { auditedAt: anchor } });
     await runDailyAutomation(new Date(downPaymentDeadline(anchor, 15).getTime() + 5 * 60_000));
-    expect((await prisma.lead.findUniqueOrThrow({ where: { id: started.leadId } })).status).toBe(LeadStatus.OPERATIONS_HANDOVER);
+
+    const lead = await prisma.lead.findUniqueOrThrow({ where: { id: started.leadId } });
+    expect(lead.status, "nothing hands itself over").not.toBe(LeadStatus.OPERATIONS_HANDOVER);
+    expect(await prisma.operationsHandover.count({ where: { enrollmentId: started.enrollmentId } })).toBe(0);
+    expect(
+      await prisma.notification.count({ where: { relatedEntityId: started.enrollmentId, type: "DOWN_PAYMENT_OVERDUE" } }),
+      "but the overdue learner is still chased",
+    ).toBeGreaterThan(0);
   });
 
   it("BR-11 — a fully paid learner is clearly identified", async () => {
