@@ -46,6 +46,15 @@ async function newLead(): Promise<string> {
   return id;
 }
 
+/**
+ * The outbox is global, and every other suite now queues rows into it too. Drop anything that
+ * is not this suite's so a drain here writes only what this test is asserting about.
+ */
+async function isolateQueue() {
+  const mine = await prisma.lead.findMany({ where: { leadSource: TAG }, select: { id: true } });
+  await prisma.sheetSyncOutbox.deleteMany({ where: { leadId: { notIn: mine.map((l) => l.id) } } });
+}
+
 async function cleanup() {
   const rows = await prisma.lead.findMany({ where: { leadSource: TAG }, select: { id: true } });
   const ids = rows.map((l) => l.id);
@@ -83,6 +92,7 @@ describe("the outbox", () => {
     const queuedRows = await prisma.sheetSyncOutbox.count({ where: { leadId: id, status: "PENDING" } });
     expect(queuedRows, "several changes queue several rows").toBeGreaterThan(1);
 
+    await isolateQueue();
     await drainSheetSync();
     const written = sheet.rows;
 
@@ -94,6 +104,7 @@ describe("the outbox", () => {
 
   it("a Google outage leaves the queue intact and records why", async () => {
     const id = await newLead();
+    await isolateQueue();
     sheet.failWith = "Google Sheets refused the request (503).";
     const result = await drainSheetSync();
 

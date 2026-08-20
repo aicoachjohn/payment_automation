@@ -7,6 +7,8 @@ import { performOverride, describeOverride, OverrideError, type OverrideInput } 
 import { setConfig } from "@/server/services/system-config";
 import { findRecords } from "@/server/services/admin-console";
 import { runDailyAutomation } from "@/server/services/automation";
+import { drainSheetSync, enqueueFullBackfill, lastSheetSyncError } from "@/server/services/sheet-sync";
+import { sheetsMirrorEnabled } from "@/server/sheets";
 import { runReconciliation, acknowledgeException, resolveException, ReconciliationError } from "@/server/services/reconciliation";
 import { AuthorizationError } from "@/server/auth/permissions";
 import { z } from "zod";
@@ -73,6 +75,29 @@ export const runAutomationAction = withPermission("config:write")
     const summary = await runDailyAutomation(new Date());
     revalidatePath("/admin/jobs");
     return { ok: true as const, summary };
+  });
+
+/**
+ * Push everything to the Google Sheet now — the setup check and the "it looks stale" button.
+ *
+ * Queues every live lead and drains immediately, so it doubles as the backfill. Reports what
+ * actually happened rather than claiming success: a misconfigured key or an unshared sheet
+ * shows up here as a failure count, which is the whole point of having the button.
+ */
+export const syncSheetsNowAction = withPermission("config:write")
+  .schema(z.object({}))
+  .action(async () => {
+    if (!sheetsMirrorEnabled()) {
+      return { ok: false as const, error: "The Google Sheets mirror is switched off (SHEETS_PROVIDER is not set to google)." };
+    }
+    const queued = await enqueueFullBackfill();
+    const result = await drainSheetSync(2000);
+    revalidatePath("/admin/jobs");
+    if (result.failed > 0) {
+      const last = await lastSheetSyncError();
+      return { ok: false as const, error: last ?? "The sheet could not be written." };
+    }
+    return { ok: true as const, queued, written: result.written };
   });
 
 /** Run the daily reconciliation check now (FR-REC-11). Raises exceptions to SA + Rajesh. */

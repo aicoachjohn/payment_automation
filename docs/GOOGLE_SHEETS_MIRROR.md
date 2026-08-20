@@ -60,9 +60,13 @@ GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY--
 
 ## 5. Backfill and run
 
-`enqueueFullBackfill()` queues every live lead; the next sync writes them all. After that the
-mirror keeps itself in step — the daily automation job drains the queue, and the Super Admin
-console's job runner reports how many rows were synced.
+Sign in as the Super Admin → **Jobs** → **"Sync all leads to Google Sheet now"**. That queues
+every live lead and writes immediately, so it doubles as the setup check: if the key is wrong
+or the sheet was never shared with the service account, the real error appears on the button
+rather than failing quietly overnight.
+
+After that the mirror keeps itself in step — the daily automation job drains the queue and
+reports how many rows were synced.
 
 ---
 

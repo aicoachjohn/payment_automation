@@ -145,3 +145,13 @@ export async function enqueueFullBackfill(): Promise<number> {
   });
   return leads.length;
 }
+
+/** The most recent failure recorded by a drain — what the manual sync button reports. */
+export async function lastSheetSyncError(): Promise<string | null> {
+  const row = await db.sheetSyncOutbox.findFirst({
+    where: { status: "PENDING", lastError: { not: null } },
+    orderBy: { createdAt: "desc" },
+    select: { lastError: true },
+  });
+  return row?.lastError ?? null;
+}
