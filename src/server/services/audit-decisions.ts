@@ -398,6 +398,9 @@ export async function getAuditRecord(actor: Actor, paymentId: string) {
   return {
     id: p.id,
     leadId: p.enrollment.leadId,
+    // Lets the audit screen carry the handover action, so approving and handing over happen
+    // in one place instead of across two tabs.
+    enrollmentId: p.enrollmentId,
     leadName: p.enrollment.lead.fullName,
     mobile: p.enrollment.lead.mobile,
     email: p.enrollment.lead.email,

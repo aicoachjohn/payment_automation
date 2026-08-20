@@ -21,6 +21,8 @@ export const submitToFinanceAction = authActionClient
       const res = await submitToFinance(ctx.actor, parsedInput.handoverId);
       revalidatePath(`/handover/${parsedInput.handoverId}`);
       revalidatePath("/handover");
+      // Nandhiya acts from the audit record, not the handover tab.
+      revalidatePath("/audit", "layout");
       return { ok: true as const, message: res.message };
     } catch (e) {
       if (e instanceof HandoverError) return { ok: false as const, error: e.message };
@@ -36,6 +38,8 @@ export const financeApproveAction = authActionClient
       const res = await financeApproveHandover(ctx.actor, parsedInput.handoverId);
       revalidatePath(`/handover/${parsedInput.handoverId}`);
       revalidatePath("/handover");
+      // Nandhiya acts from the audit record, not the handover tab.
+      revalidatePath("/audit", "layout");
       return { ok: true as const, message: res.message };
     } catch (e) {
       if (e instanceof HandoverError) return { ok: false as const, error: e.message };
@@ -51,6 +55,8 @@ export const financeRejectAction = authActionClient
       const res = await financeRejectHandover(ctx.actor, parsedInput.handoverId, parsedInput.reason);
       revalidatePath(`/handover/${parsedInput.handoverId}`);
       revalidatePath("/handover");
+      // Nandhiya acts from the audit record, not the handover tab.
+      revalidatePath("/audit", "layout");
       return { ok: true as const, message: res.message };
     } catch (e) {
       if (e instanceof HandoverError) return { ok: false as const, error: e.message };

@@ -121,11 +121,15 @@ test("Sales hand over to Nandhiya, who approves and hands over to Finance", asyn
   const h = await prisma.operationsHandover.findFirstOrThrow({ where: { enrollmentId } });
   expect(h.stage).toBe("WITH_DATA_MGMT");
 
-  // ── Stage 2: Nandhiya ─────────────────────────────────────────────────────
+  // ── Stage 2: Nandhiya, from her AUDIT record — not a separate Handovers tab ────
   await page.goto("/login");
   await login(page, AUDIT);
-  await page.goto(`/handover/${h.id}`);
+  const payment0 = await prisma.payment.findFirstOrThrow({ where: { enrollmentId } });
+  await page.goto(`/audit/${payment0.id}`);
   await page.waitForLoadState("networkidle");
+
+  // The handover action lives on the record she is auditing, so she never leaves it.
+  await expect(page.getByRole("heading", { name: /^Handover$/ })).toBeVisible();
 
   // She cannot pass it on yet — the payment is still awaiting her decision.
   await expect(page.getByText(/Audit decision on payment #1/i)).toBeVisible();
