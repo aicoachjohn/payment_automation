@@ -5,6 +5,7 @@ import { dashboardSummary, listLeads } from "@/server/services/leads";
 import { downPaymentCountdowns } from "@/server/services/automation";
 import { myPendingActions } from "@/server/services/follow-ups";
 import { formatINR, formatDate } from "@/lib/format";
+import { APPROVAL_LABEL, type ApprovalState } from "@/server/services/lead-status";
 import { ShareIntakeLinkButton } from "./share-intake-link";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -151,12 +152,13 @@ export default async function SalesHome({
               <th className="px-3 py-2">Program / Plan</th>
               <th className="px-3 py-2">Final Fee</th>
               <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Approval</th>
               <th className="px-3 py-2">Created</th>
             </tr>
           </thead>
           <tbody>
             {leads.length === 0 && (
-              <tr><td colSpan={isManager ? 7 : 6} className="px-3 py-6 text-center text-slate-400">No leads yet.</td></tr>
+              <tr><td colSpan={isManager ? 8 : 7} className="px-3 py-6 text-center text-slate-400">No leads yet.</td></tr>
             )}
             {leads.map((l) => (
               <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900">
@@ -169,6 +171,7 @@ export default async function SalesHome({
                 <td className="px-3 py-2">{l.program ?? "—"}{l.plan ? ` / ${l.plan}` : ""}</td>
                 <td className="px-3 py-2 font-mono text-xs">{l.finalApprovedFee ? formatINR(l.finalApprovedFee) : "—"}</td>
                 <td className="px-3 py-2">{STATUS_LABEL[l.status] ?? l.status}</td>
+                <td className="px-3 py-2"><ApprovalChip state={l.approval} /></td>
                 <td className="px-3 py-2 text-xs text-slate-500">{formatDate(l.createdAt)}</td>
               </tr>
             ))}
@@ -176,5 +179,28 @@ export default async function SalesHome({
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * Where the lead stands in the approval chain, colour-coded by who owes the next move:
+ * red = Sales must act, amber = waiting on someone else, green = done.
+ */
+const APPROVAL_TONE: Record<ApprovalState, string> = {
+  NOT_SUBMITTED: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  CORRECTION_REQUIRED: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+  PAYMENT_REJECTED: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+  RETURNED_BY_FINANCE: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+  AWAITING_AUDIT: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  WITH_DATA_MGMT: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  APPROVED_BY_DATA_MGMT: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  APPROVED_BY_FINANCE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+};
+
+function ApprovalChip({ state }: { state: ApprovalState }) {
+  return (
+    <span className={`whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${APPROVAL_TONE[state]}`}>
+      {APPROVAL_LABEL[state]}
+    </span>
   );
 }

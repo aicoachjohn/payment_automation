@@ -28,7 +28,7 @@ import {
 } from "@/server/auth/permissions";
 import { money, round, sub, sum, calculateBalance, type Money } from "@/server/money";
 import { calculateFee, getConcessionThreshold, applyConcession } from "@/server/services/pricing";
-import { computeLeadStatus } from "@/server/services/lead-status";
+import { computeLeadStatus, computeApprovalState } from "@/server/services/lead-status";
 import { notifyUser } from "@/server/notifications";
 
 export class LeadError extends Error {
@@ -589,23 +589,42 @@ function requireAll(actor: Actor): boolean {
 export async function listLeads(actor: Actor, filters: LeadFilters = {}) {
   const rows = await db.lead.findMany({
     where: scopeWhere(actor, filters),
-    include: { enrollment: true, salesperson: { select: { name: true } } },
+    include: {
+      salesperson: { select: { name: true } },
+      enrollment: {
+        include: {
+          payments: { select: { auditStatus: true, voided: true } },
+          // Newest first: a lead can be returned by Finance and re-submitted, and only the
+          // current handover describes where it stands now.
+          handovers: { orderBy: { createdAt: "desc" }, take: 1 },
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
     take: 200,
   });
-  return rows.map((r) => ({
-    id: r.id,
-    fullName: r.fullName,
-    mobile: r.mobile,
-    email: r.email,
-    status: r.status,
-    ownerName: r.salesperson.name,
-    program: r.enrollment?.program ?? null,
-    plan: r.enrollment?.plan ?? null,
-    finalApprovedFee: r.enrollment?.finalApprovedFee?.toFixed(2) ?? null,
-    concessionStatus: r.enrollment?.concessionStatus ?? ConcessionStatus.NONE,
-    createdAt: r.createdAt.toISOString(),
-  }));
+  return rows.map((r) => {
+    const handover = r.enrollment?.handovers[0] ?? null;
+    return {
+      id: r.id,
+      fullName: r.fullName,
+      mobile: r.mobile,
+      email: r.email,
+      status: r.status,
+      ownerName: r.salesperson.name,
+      program: r.enrollment?.program ?? null,
+      plan: r.enrollment?.plan ?? null,
+      finalApprovedFee: r.enrollment?.finalApprovedFee?.toFixed(2) ?? null,
+      concessionStatus: r.enrollment?.concessionStatus ?? ConcessionStatus.NONE,
+      // Where this lead sits in the Sales → Nandhiya → Finance chain.
+      approval: computeApprovalState({
+        payments: r.enrollment?.payments ?? [],
+        handoverStage: handover?.stage ?? null,
+        financeReturned: Boolean(handover?.financeRejectionReason),
+      }),
+      createdAt: r.createdAt.toISOString(),
+    };
+  });
 }
 
 async function sumApprovedThisMonth(where: Prisma.PaymentWhereInput): Promise<Money> {
