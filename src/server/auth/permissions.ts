@@ -5,7 +5,11 @@
  * (tests/unit/permissions.test.ts) walks every cell and is the specification.
  *
  * Key invariants baked in here:
- *  - FINANCE_REVIEWER holds NO write permission of any kind (BR-18) — reads only.
+ *  - FINANCE_REVIEWER is read-only over PAYMENT DATA (BR-18): no permission anywhere lets
+ *    Finance change an amount, a date, a Transaction ID or a payment's audit status. Its one
+ *    write capability is `handover:finance-decide` — the second-level sign-off on a handover
+ *    record, added by business decision (see CLAUDE.md). It moves a handover's stage and
+ *    nothing else.
  *  - There is no `payment:edit-amount` permission ANYWHERE — the Super Admin cannot
  *    directly edit a payment amount/date/Txn ID (FR-SA-08, BR-24). It simply does not
  *    exist as a grantable capability.
@@ -29,6 +33,7 @@ export type Permission =
   | "payment:reverse-audit"
   | "finance:read"
   | "finance:query"
+  | "handover:finance-decide"
   | "customer:read"
   | "concession:create"
   | "concession:approve"
@@ -92,6 +97,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "lead:read:all",
     "finance:read",
     "finance:query",
+    "handover:finance-decide",
     "customer:read",
     "pricing:read",
     "audit:read:all",

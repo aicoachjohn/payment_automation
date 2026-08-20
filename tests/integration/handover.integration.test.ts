@@ -21,12 +21,13 @@ const leads = await import("@/server/services/leads");
 const { generateDraft } = await import("@/server/services/draft");
 const { uploadProof, capturePayment } = await import("@/server/services/payments");
 const { approvePayment } = await import("@/server/services/audit-decisions");
-const { submitToDataMgmt, submitToFinance, buildHandoverSnapshot, HandoverError } = await import("@/server/services/handover");
+const { submitToDataMgmt, submitToFinance, financeApproveHandover, financeRejectHandover, buildHandoverSnapshot, HandoverError } = await import("@/server/services/handover");
 const automation = await import("@/server/services/automation");
 
 const prisma = new PrismaClient();
 let mathiew: { userId: string; role: Role };
 let nandhiya: { userId: string; role: Role };
+let rajesh: { userId: string; role: Role };
 const TAG = "handover-it";
 let n = 0;
 const DAY = 86_400_000;
@@ -82,6 +83,7 @@ async function cleanup() {
 beforeAll(async () => {
   mathiew = { userId: (await prisma.user.findFirstOrThrow({ where: { email: "mathiew@proitbridge.local" } })).id, role: Role.SALESPERSON };
   nandhiya = { userId: (await prisma.user.findFirstOrThrow({ where: { email: "nandhiya@proitbridge.local" } })).id, role: Role.DATA_MGMT_AUDITOR };
+  rajesh = { userId: (await prisma.user.findFirstOrThrow({ where: { email: "rajesh@proitbridge.local" } })).id, role: Role.FINANCE_REVIEWER };
   await cleanup();
 });
 afterAll(async () => { await cleanup(); await prisma.$disconnect(); });
@@ -153,6 +155,72 @@ describe("stage 2 — Data Management pass it to Finance", () => {
     const s = await seedUnapproved();
     const { handoverId } = await submitToDataMgmt(mathiew, s.enrollmentId);
     await expect(submitToFinance(mathiew, handoverId)).rejects.toThrow();
+  });
+});
+
+describe("stage 3 — Finance sign it off, or send it back", () => {
+  /** Get a record all the way to Finance's desk. */
+  async function withFinance() {
+    const s = await seedUnapproved();
+    const { handoverId } = await submitToDataMgmt(mathiew, s.enrollmentId);
+    const p = await prisma.payment.findFirstOrThrow({ where: { enrollmentId: s.enrollmentId } });
+    await approvePayment(nandhiya, p.id, { confirmations: OK, varianceReason: "accepted" });
+    await submitToFinance(nandhiya, handoverId);
+    return { ...s, handoverId };
+  }
+
+  it("Rajesh approves → the record is signed off", async () => {
+    const { handoverId } = await withFinance();
+    const res = await financeApproveHandover(rajesh, handoverId);
+    expect(res.message).toMatch(/signed off/i);
+    const h = await prisma.operationsHandover.findUniqueOrThrow({ where: { id: handoverId } });
+    expect(h.stage).toBe("FINANCE_APPROVED");
+    expect(h.financeDecisionBy).toBe(rajesh.userId);
+  });
+
+  it("Rajesh rejects → it goes BACK to Data Management carrying his reason", async () => {
+    const { handoverId } = await withFinance();
+    await financeRejectHandover(rajesh, handoverId, "Bank reference does not match the statement");
+
+    const h = await prisma.operationsHandover.findUniqueOrThrow({ where: { id: handoverId } });
+    expect(h.stage, "back on Nandhiya's desk").toBe("WITH_DATA_MGMT");
+    expect(h.financeRejectionReason).toMatch(/Bank reference/i);
+
+    // And Nandhiya can send it straight back once she has dealt with it.
+    const again = await submitToFinance(nandhiya, handoverId);
+    expect(again.message).toMatch(/Rajesh|Finance/i);
+    expect((await prisma.operationsHandover.findUniqueOrThrow({ where: { id: handoverId } })).stage).toBe("WITH_FINANCE");
+  });
+
+  it("a rejection without a reason is refused (BR-16)", async () => {
+    const { handoverId } = await withFinance();
+    await expect(financeRejectHandover(rajesh, handoverId, "   ")).rejects.toThrow(/what is wrong/i);
+  });
+
+  it("only Finance may sign off — and never twice", async () => {
+    const { handoverId } = await withFinance();
+    await expect(financeApproveHandover(nandhiya, handoverId)).rejects.toThrow();
+    await financeApproveHandover(rajesh, handoverId);
+    await expect(financeApproveHandover(rajesh, handoverId)).rejects.toThrow(/already signed/i);
+  });
+
+  it("cannot sign off a record still sitting with Data Management", async () => {
+    const s = await seedUnapproved();
+    const { handoverId } = await submitToDataMgmt(mathiew, s.enrollmentId);
+    await expect(financeApproveHandover(rajesh, handoverId)).rejects.toThrow(/still with Data Management/i);
+  });
+
+  it("Finance's decision never touches the payment record itself (BR-18 where it counts)", async () => {
+    const { enrollmentId, handoverId } = await withFinance();
+    const before = await prisma.payment.findFirstOrThrow({ where: { enrollmentId } });
+    await financeRejectHandover(rajesh, handoverId, "Please re-check the proof");
+    const after = await prisma.payment.findFirstOrThrow({ where: { id: before.id } });
+
+    // The money and the audit decision are exactly as Nandhiya left them.
+    expect(after.receivedAmount.toString()).toBe(before.receivedAmount.toString());
+    expect(after.auditStatus).toBe(before.auditStatus);
+    expect(after.transactionId).toBe(before.transactionId);
+    expect(after.auditedBy).toBe(before.auditedBy);
   });
 });
 

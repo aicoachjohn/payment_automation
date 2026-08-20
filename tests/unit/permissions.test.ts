@@ -33,6 +33,9 @@ const EXPECTED: Record<Permission, Role[]> = {
   // FR-FIN-10: raising a Finance Query is a write to a SEPARATE communication entity,
   // never to payment data — the one deliberate non-payment write Finance may perform.
   "finance:query": [Role.FINANCE_REVIEWER, Role.SUPER_ADMIN],
+  // Finance's second-level sign-off on a HANDOVER (business decision; BR-18 relaxed). Moves
+  // a handover's stage and nothing else — never an amount, date, Txn ID or audit status.
+  "handover:finance-decide": [Role.FINANCE_REVIEWER],
   "customer:read": [Role.SALESPERSON, Role.SALES_MANAGER, Role.DATA_MGMT_AUDITOR, Role.FINANCE_REVIEWER, Role.SUPER_ADMIN],
   "concession:create": [Role.SALESPERSON, Role.SALES_MANAGER],
   "concession:approve": [Role.SALES_MANAGER, Role.SUPER_ADMIN],
@@ -85,13 +88,25 @@ describe("permission matrix — the inviolable invariants", () => {
     }
   });
 
-  it("the ONLY write Finance holds is finance:query, which never touches payment data (FR-FIN-10)", () => {
+  it("Finance's only writes are the query and the handover sign-off — never payment data", () => {
     const financeWrites = ALL_PERMISSIONS.filter(
       (p) => hasPermission(Role.FINANCE_REVIEWER, p) && !p.endsWith(":read") && !p.includes(":read:"),
     );
-    expect(financeWrites).toEqual(["finance:query"]);
-    // and it is deliberately NOT in the payment-data WRITE_PERMISSIONS list above
-    expect(WRITE_PERMISSIONS).not.toContain("finance:query" as Permission);
+    // Exactly two, and both are deliberate: FR-FIN-10's Finance Query (a separate
+    // communication entity) and the second-level handover sign-off. If a third ever appears
+    // here, someone has widened Finance's authority and this test is the place to argue it.
+    expect(financeWrites.sort()).toEqual(["finance:query", "handover:finance-decide"]);
+    for (const w of financeWrites) {
+      expect(WRITE_PERMISSIONS, `${w} must not be a payment-data write`).not.toContain(w as Permission);
+    }
+  });
+
+  it("no permission anywhere lets Finance touch payment data (BR-18 still holds where it counts)", () => {
+    // The relaxation is scoped: Finance may sign off a handover, but must remain unable to
+    // audit, capture, edit or reverse a payment.
+    for (const p of ["payment:audit", "payment:create", "payment:update:own", "payment:reverse-audit"] as Permission[]) {
+      expect(hasPermission(Role.FINANCE_REVIEWER, p), `${p} must stay closed to Finance`).toBe(false);
+    }
   });
 
   it("`payment:edit-amount` does not exist as a permission anywhere (FR-SA-08, BR-24)", () => {

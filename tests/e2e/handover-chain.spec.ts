@@ -1,4 +1,8 @@
 /**
+ * NOTE: the waits here are generous (60s). These are the first requests to hit each server
+ * action in a dev build, and Next compiles them on demand — a cold route can take well over
+ * the usual 15s. It is compile latency, not the app being slow.
+ *
  * The handover chain, driven through the real screens: Sales submit to Nandhiya, Nandhiya
  * approves the payment, Nandhiya passes it to Finance.
  *
@@ -14,6 +18,7 @@ import { prisma, ensureUser, cleanupUser, type E2EUser } from "./helpers/db";
 
 const SALES: E2EUser = { email: "e2e.chain.sales@proitbridge.local", password: "Test#Chain1", role: Role.SALESPERSON, twoFa: false };
 const AUDIT: E2EUser = { email: "e2e.chain.audit@proitbridge.local", password: "Test#Chain2", role: Role.DATA_MGMT_AUDITOR, twoFa: false };
+const FIN: E2EUser = { email: "e2e.chain.fin@proitbridge.local", password: "Test#Chain3", role: Role.FINANCE_REVIEWER, twoFa: false };
 
 let salesId = "";
 let auditId = "";
@@ -26,17 +31,18 @@ async function login(page: Page, u: E2EUser) {
   await page.getByLabel("Email").fill(u.email);
   await page.getByLabel("Password").fill(u.password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL(/\/login\/otp|\/sales|\/audit/, { timeout: 15_000 });
+  await page.waitForURL(/\/login\/otp|\/sales|\/audit|\/finance/, { timeout: 60_000 });
   if (new URL(page.url()).pathname === "/login/otp") {
     await page.getByLabel("6-digit code").fill(process.env.E2E_FIXED_OTP ?? "000000");
     await page.getByRole("button", { name: "Verify" }).click();
   }
-  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 15_000 });
+  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 60_000 });
 }
 
 test.beforeAll(async () => {
   salesId = await ensureUser(SALES);
   auditId = await ensureUser(AUDIT);
+  await ensureUser(FIN);
 
   const existing = readdirSync(".proof-storage/proofs").filter((f) => !f.endsWith(".ocr.json"))[0];
   const key = `proofs/chain-e2e-${process.pid}`;
@@ -99,6 +105,7 @@ test.afterAll(async () => {
   if (proofPath) rmSync(proofPath, { force: true });
   await cleanupUser(SALES.email);
   await cleanupUser(AUDIT.email);
+  await cleanupUser(FIN.email);
   await prisma.$disconnect();
 });
 
@@ -109,7 +116,7 @@ test("Sales hand over to Nandhiya, who approves and hands over to Finance", asyn
   await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: /Submit handover to Nandhiya/i }).click();
-  await expect(page.getByText(/Handed over to Nandhiya/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Handed over to Nandhiya/i)).toBeVisible({ timeout: 60_000 });
 
   const h = await prisma.operationsHandover.findFirstOrThrow({ where: { enrollmentId } });
   expect(h.stage).toBe("WITH_DATA_MGMT");
@@ -140,7 +147,7 @@ test("Sales hand over to Nandhiya, who approves and hands over to Finance", asyn
   await page.reload();
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: /Hand over to Rajesh/i }).click();
-  await expect(page.getByText(/Handed over to Rajesh/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Handed over to Rajesh/i)).toBeVisible({ timeout: 60_000 });
 
   const after = await prisma.operationsHandover.findUniqueOrThrow({ where: { id: h.id } });
   expect(after.stage).toBe("WITH_FINANCE");
@@ -149,4 +156,27 @@ test("Sales hand over to Nandhiya, who approves and hands over to Finance", asyn
   // not on the money being complete.
   const e = await prisma.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
   expect(Number(e.finalApprovedFee)).toBeGreaterThan(5000);
+
+  // ── Stage 3: Rajesh ───────────────────────────────────────────────────────
+  await page.goto("/login");
+  await login(page, FIN);
+  await page.goto(`/handover/${h.id}`);
+  await page.waitForLoadState("networkidle");
+
+  // He sends it back first, with a reason — it must land on Nandhiya's desk again.
+  await page.getByRole("button", { name: /Send back to Data Management/i }).click();
+  await page.getByPlaceholder(/What does Data Management need to correct/i).fill("Proof is unreadable");
+  await page.getByRole("button", { name: /Confirm — send it back/i }).click();
+  await expect(page.getByText(/Sent back to Data Management/i)).toBeVisible({ timeout: 60_000 });
+  expect((await prisma.operationsHandover.findUniqueOrThrow({ where: { id: h.id } })).stage).toBe("WITH_DATA_MGMT");
+
+  // Nandhiya passes it back, and this time he approves.
+  await prisma.operationsHandover.update({ where: { id: h.id }, data: { stage: "WITH_FINANCE" } });
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("button", { name: /^Approve$/ }).click();
+  // The confirmation must survive the refresh that unmounts the decision panel — otherwise
+  // Rajesh clicks Approve and is shown nothing.
+  await expect(page.getByText(/Approved by Finance/i).first()).toBeVisible({ timeout: 60_000 });
+  expect((await prisma.operationsHandover.findUniqueOrThrow({ where: { id: h.id } })).stage).toBe("FINANCE_APPROVED");
 });

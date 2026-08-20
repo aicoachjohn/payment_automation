@@ -221,7 +221,10 @@ export async function submitToFinance(
   });
   if (!h) throw new HandoverError("Handover not found.");
   if (h.stage === HandoverStage.WITH_FINANCE) {
-    throw new HandoverError("This learner has already been handed over to Finance.");
+    throw new HandoverError("This learner is already with Finance.");
+  }
+  if (h.stage === HandoverStage.FINANCE_APPROVED) {
+    throw new HandoverError("Finance has already signed this learner off.");
   }
 
   const snapshot = await buildHandoverSnapshot(h.enrollmentId);
@@ -271,9 +274,142 @@ export async function submitToFinance(
   return { message: "Handed over to Rajesh (Finance).", handoverId };
 }
 
+/**
+ * Stage 3 — Finance's second-level sign-off (business decision; BR-18 relaxed).
+ *
+ * Deliberately scoped to the HANDOVER. Nothing here can change a payment's amount, date,
+ * Transaction ID or audit status: Finance still holds no write permission over payment data,
+ * so the money controls are untouched. Rajesh is signing off the record Nandhiya sent him.
+ *
+ * His decision does NOT filter the Finance statement either — a payment counts from the
+ * moment Nandhiya approves it (BR-15), so money already collected can never go missing from
+ * Finance's totals while a sign-off is pending.
+ */
+export async function financeApproveHandover(
+  actor: Actor,
+  handoverId: string,
+): Promise<{ message: string }> {
+  requirePermission(actor, "handover:finance-decide");
+  const h = await loadForFinance(handoverId);
+
+  await db.$transaction(async (tx) => {
+    await tx.operationsHandover.update({
+      where: { id: handoverId },
+      data: {
+        stage: HandoverStage.FINANCE_APPROVED,
+        financeDecisionBy: actor.userId,
+        financeDecisionAt: new Date(),
+        financeRejectionReason: null,
+      },
+    });
+    await writeAudit(tx, {
+      entityType: "Enrollment",
+      entityId: h.enrollmentId,
+      action: "HANDOVER_FINANCE_APPROVED",
+      changes: [{ field: "stage", oldValue: HandoverStage.WITH_FINANCE, newValue: HandoverStage.FINANCE_APPROVED }],
+      actor,
+    });
+  });
+
+  await notifyRoles([Role.DATA_MGMT_AUDITOR], {
+    type: "HANDOVER_RECEIVED",
+    subject: `Finance approved — ${h.enrollment.lead.fullName}`,
+    body: `Rajesh (Finance) has approved the handover for ${h.enrollment.lead.fullName}.`,
+    enrollmentId: h.enrollmentId,
+  });
+
+  return { message: "Approved. This learner is now signed off by Finance." };
+}
+
+/**
+ * Finance sends the record BACK to Data Management with a mandatory written reason, exactly
+ * like every other rejection in the platform (BR-16). Nandhiya fixes what he flagged and
+ * passes it to him again.
+ */
+export async function financeRejectHandover(
+  actor: Actor,
+  handoverId: string,
+  reason: string,
+): Promise<{ message: string }> {
+  requirePermission(actor, "handover:finance-decide");
+  if (!reason?.trim()) {
+    throw new HandoverError("Say what is wrong with this record so Data Management can fix it.");
+  }
+  const h = await loadForFinance(handoverId);
+
+  await db.$transaction(async (tx) => {
+    await tx.operationsHandover.update({
+      where: { id: handoverId },
+      data: {
+        stage: HandoverStage.WITH_DATA_MGMT,
+        financeDecisionBy: actor.userId,
+        financeDecisionAt: new Date(),
+        financeRejectionReason: reason.trim(),
+      },
+    });
+    await writeAudit(tx, {
+      entityType: "Enrollment",
+      entityId: h.enrollmentId,
+      action: "HANDOVER_FINANCE_REJECTED",
+      changes: [
+        { field: "stage", oldValue: HandoverStage.WITH_FINANCE, newValue: HandoverStage.WITH_DATA_MGMT },
+        { field: "reason", oldValue: null, newValue: reason.trim() },
+      ],
+      actor,
+    });
+    await advanceLeadStatus(tx, h.enrollment.leadId, actor);
+  });
+
+  await notifyRoles([Role.DATA_MGMT_AUDITOR], {
+    type: "HANDOVER_RECEIVED",
+    subject: `Finance sent it back — ${h.enrollment.lead.fullName}`,
+    body: `Rajesh (Finance) returned the handover for ${h.enrollment.lead.fullName}. Reason: ${reason.trim()}`,
+    enrollmentId: h.enrollmentId,
+  });
+
+  return { message: "Sent back to Data Management with your reason." };
+}
+
+/** A handover that is actually sitting with Finance — the only thing Rajesh may decide on. */
+async function loadForFinance(handoverId: string) {
+  const h = await db.operationsHandover.findUnique({
+    where: { id: handoverId },
+    include: { enrollment: { include: { lead: true } } },
+  });
+  if (!h) throw new HandoverError("Handover not found.");
+  if (h.stage === HandoverStage.WITH_DATA_MGMT) {
+    throw new HandoverError("This record is still with Data Management — there is nothing to sign off yet.");
+  }
+  if (h.stage === HandoverStage.FINANCE_APPROVED) {
+    throw new HandoverError("You have already signed this learner off.");
+  }
+  return h;
+}
+
+async function notifyRoles(
+  roles: Role[],
+  msg: { type: string; subject: string; body: string; enrollmentId: string },
+): Promise<void> {
+  const users = await db.user.findMany({
+    where: { role: { in: roles }, status: UserStatus.ACTIVE },
+    select: { id: true, email: true },
+  });
+  for (const u of users) {
+    await notifyUser({
+      recipientId: u.id,
+      recipientEmail: u.email,
+      type: msg.type,
+      subject: msg.subject,
+      body: msg.body,
+      relatedEntityType: "Enrollment",
+      relatedEntityId: msg.enrollmentId,
+    });
+  }
+}
+
 /** The consolidated record for a handover, available to Nandhiya, Rajesh, managers, SA
  *  and the owning salesperson (FR-SAL-71). */
-export async function getHandover(actor: Actor, handoverId: string): Promise<{ id: string; enrollmentId: string; type: string; stage: HandoverStage; validated: boolean; handoverDate: string | null; record: HandoverRecord; missing: string[] }> {
+export async function getHandover(actor: Actor, handoverId: string): Promise<{ id: string; enrollmentId: string; type: string; stage: HandoverStage; financeRejectionReason: string | null; financeDecisionAt: string | null; validated: boolean; handoverDate: string | null; record: HandoverRecord; missing: string[] }> {
   const h = await db.operationsHandover.findUnique({
     where: { id: handoverId },
     include: { enrollment: { include: { lead: true } } },
@@ -286,6 +422,8 @@ export async function getHandover(actor: Actor, handoverId: string): Promise<{ i
     enrollmentId: h.enrollmentId,
     type: h.handoverType,
     stage: h.stage,
+    financeRejectionReason: h.financeRejectionReason,
+    financeDecisionAt: h.financeDecisionAt?.toISOString() ?? null,
     validated: h.validatedFlag,
     handoverDate: h.handoverDate?.toISOString() ?? null,
     record: h.snapshot as unknown as HandoverRecord,

@@ -512,7 +512,9 @@ export async function advanceLeadStatus(tx: DbTx, leadId: string, actor: Actor):
   // handover chain so the status stays system-derived rather than being stamped by hand.
   const handedToFinance = enrollment
     ? (await tx.operationsHandover.count({
-        where: { enrollmentId: enrollment.id, stage: "WITH_FINANCE" },
+        // Both stages count: once it has reached Finance the lead is at the end of the
+        // pipeline, and Rajesh signing it off must not send the status backwards.
+        where: { enrollmentId: enrollment.id, stage: { in: ["WITH_FINANCE", "FINANCE_APPROVED"] } },
       })) > 0
     : false;
 

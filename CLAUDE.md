@@ -16,9 +16,10 @@ three with controlled override authority.
 
 The **handover chain follows the same three stages**: Sales assemble the consolidated
 learner/payment record and submit it to Nandhiya; she audits the payments on it and passes it
-to Rajesh. **Each stage is gated only by what that role owns** — Sales are never blocked by
-something only Nandhiya can fix, and she is never blocked by money still to be collected.
-Nothing hands itself over: every hop is submitted by a person (see rule 11).
+to Rajesh; Rajesh gives a **second-level sign-off — approve, or send it back to Nandhiya with
+a written reason**. **Each stage is gated only by what that role owns** — Sales are never
+blocked by something only Nandhiya can fix, and she is never blocked by money still to be
+collected. Nothing hands itself over: every hop is submitted by a person (see rule 11).
 
 ---
 
@@ -62,8 +63,10 @@ Nothing hands itself over: every hop is submitted by a person (see rule 11).
     Sales → Data Management → Finance, and each hop is an explicit submission. The Day-15
     auto-transfer to Operations was **removed** by business decision (was FR-SAL-53,
     BR-10/BR-12) — an overdue down payment now alerts Sales, the Sales Manager, Nandhiya and
-    Rajesh once a day and leaves the record exactly where it is. A handover stage is
-    `WITH_DATA_MGMT` or `WITH_FINANCE`; lead status is still derived from it, never stamped.
+    Rajesh once a day and leaves the record exactly where it is. Stages are `WITH_DATA_MGMT`
+    → `WITH_FINANCE` → `FINANCE_APPROVED`; a Finance rejection returns it to
+    `WITH_DATA_MGMT` with a mandatory reason (BR-16). Lead status is still derived from the
+    stage, never stamped.
 
 ---
 
@@ -86,8 +89,15 @@ Nothing hands itself over: every hop is submitted by a person (see rule 11).
 
 `SALESPERSON`, `SALES_MANAGER`, `DATA_MGMT_AUDITOR`, `FINANCE_REVIEWER`, `SUPER_ADMIN`.
 
-- Finance is **read-only by design** (BR-18): `FINANCE_REVIEWER` has no write permission
-  of any kind on payment data.
+- Finance is **read-only over payment data** (BR-18): no permission anywhere lets
+  `FINANCE_REVIEWER` change an amount, a date, a Transaction ID or a payment's audit status.
+  BR-18's original "no write of any kind" is **relaxed by business decision** to exactly two
+  capabilities, both outside payment data: `finance:query` (FR-FIN-10) and
+  `handover:finance-decide` — the second-level sign-off, which moves a handover's stage and
+  nothing else. `tests/unit/permissions.test.ts` asserts those are the ONLY two, so a third
+  cannot appear unnoticed. Rajesh's decision does **not** filter his statement: a payment
+  counts from the moment Nandhiya approves it (BR-15), so collected money can never go
+  missing from Finance's totals while a sign-off is pending.
 - **Two-factor is per-role, and the code is asked for once per working day — not every sign-in.**
   Mandatory for `SUPER_ADMIN`, `DATA_MGMT_AUDITOR` and `FINANCE_REVIEWER` (the roles that see
   or decide on money); opt-in per user for the rest, so salespeople sign in with a password
@@ -123,6 +133,7 @@ Nothing hands itself over: every hop is submitted by a person (see rule 11).
 | Payment audit decision (L1) | – | – | **A** | – | – |
 | Reverse / reopen an audit decision | – | – | – | – | A † |
 | Finance payment statement | – | R | R | R | R |
+| Handover: submit / pass on / sign off | C (to Data Mgmt) | – | A (to Finance) | **A** (approve or send back) ‡‡ | R |
 | Complete customer data sheet | R (own) | R | R | R | R |
 | Concession request | C R | C R A | – | R | R A † |
 | Unlock a locked fee | – | A | – | – | A † |
@@ -139,6 +150,10 @@ locked to that salesperson.
 **†** Super Admin override actions **always** require a mandatory written reason and
 generate an immutable audit entry plus a notification to the affected role. They are
 exceptional actions, not routine ones.
+
+**‡‡** Finance's sign-off is on the HANDOVER, not on payment data — it moves the record's
+stage and nothing else. Rejecting requires a written reason and returns it to Data Management.
+This is the one place BR-18's "no write of any kind" was relaxed; see The five roles above.
 
 **‡** By deliberate design the Super Admin **cannot** directly edit a payment amount or
 Transaction ID. To correct an approved payment, the Super Admin reopens the audit

@@ -115,11 +115,13 @@ enum HandoverType {
   AUTO_DAY15
 }
 
-/// Where a handed-over enrollment currently sits. Sales submit it to Data Management for
-/// approval; once Nandhiya has cleared every payment she passes it on to Finance.
+/// Where a handed-over enrollment currently sits. Sales submit it to Data Management;
+/// Nandhiya clears every payment and passes it to Finance; Rajesh gives the second-level
+/// sign-off. A Finance rejection sends it back to WITH_DATA_MGMT with a written reason.
 enum HandoverStage {
   WITH_DATA_MGMT
   WITH_FINANCE
+  FINANCE_APPROVED
 }
 
 enum FinanceQueryStatus {
@@ -536,6 +538,12 @@ model OperationsHandover {
   generatedBy      String        @map("generated_by")
   passedToFinanceBy String?      @map("passed_to_finance_by")
   passedToFinanceAt DateTime?    @map("passed_to_finance_at")
+  /// Finance's second-level sign-off (BR-18 relaxed by business decision — see CLAUDE.md).
+  /// Scoped to the handover: it never touches a payment's amount, date, Txn ID or audit
+  /// status. On rejection the reason is mandatory and the record returns to Data Management.
+  financeDecisionBy String?      @map("finance_decision_by")
+  financeDecisionAt DateTime?    @map("finance_decision_at")
+  financeRejectionReason String? @map("finance_rejection_reason")
   snapshot         Json?
   createdAt        DateTime      @default(now()) @map("created_at")
 

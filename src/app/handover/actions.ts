@@ -3,7 +3,12 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { authActionClient } from "@/server/safe-action";
-import { submitToFinance, HandoverError } from "@/server/services/handover";
+import {
+  submitToFinance,
+  financeApproveHandover,
+  financeRejectHandover,
+  HandoverError,
+} from "@/server/services/handover";
 
 /**
  * Stage 2 of the handover chain: Data Management pass an approved record to Finance.
@@ -14,6 +19,36 @@ export const submitToFinanceAction = authActionClient
   .action(async ({ parsedInput, ctx }) => {
     try {
       const res = await submitToFinance(ctx.actor, parsedInput.handoverId);
+      revalidatePath(`/handover/${parsedInput.handoverId}`);
+      revalidatePath("/handover");
+      return { ok: true as const, message: res.message };
+    } catch (e) {
+      if (e instanceof HandoverError) return { ok: false as const, error: e.message };
+      throw e;
+    }
+  });
+
+/** Stage 3: Finance's second-level sign-off. Scoped to the handover — never payment data. */
+export const financeApproveAction = authActionClient
+  .schema(z.object({ handoverId: z.string().min(1) }))
+  .action(async ({ parsedInput, ctx }) => {
+    try {
+      const res = await financeApproveHandover(ctx.actor, parsedInput.handoverId);
+      revalidatePath(`/handover/${parsedInput.handoverId}`);
+      revalidatePath("/handover");
+      return { ok: true as const, message: res.message };
+    } catch (e) {
+      if (e instanceof HandoverError) return { ok: false as const, error: e.message };
+      throw e;
+    }
+  });
+
+/** Finance sends it back to Data Management. The reason is mandatory (BR-16). */
+export const financeRejectAction = authActionClient
+  .schema(z.object({ handoverId: z.string().min(1), reason: z.string().trim().min(1) }))
+  .action(async ({ parsedInput, ctx }) => {
+    try {
+      const res = await financeRejectHandover(ctx.actor, parsedInput.handoverId, parsedInput.reason);
       revalidatePath(`/handover/${parsedInput.handoverId}`);
       revalidatePath("/handover");
       return { ok: true as const, message: res.message };
