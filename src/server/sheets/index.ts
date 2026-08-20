@@ -18,6 +18,7 @@
  */
 import "server-only";
 import { createSign } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { SHEET_COLUMNS, columnLetter } from "@/server/sheets/rows";
 
 export interface SheetsProvider {
@@ -54,14 +55,42 @@ class GoogleSheetsProvider implements SheetsProvider {
 
   private token: { value: string; expiresAt: number } | null = null;
 
+  /**
+   * Credentials come from the service-account JSON file (preferred) or, failing that, from
+   * inline env vars.
+   *
+   * The file is better: the key material stays in one file with its own permissions instead
+   * of being pasted into a shell-sourced env file, and it is the format Google actually hands
+   * you. Only the PATH goes in .env, which is not a secret. Read on each use rather than
+   * cached, so rotating the key needs no redeploy.
+   */
   private config() {
-    const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    // Env vars cannot hold real newlines, so the PEM is stored with literal \n.
-    const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
     const spreadsheetId = process.env.SHEETS_SPREADSHEET_ID;
     const sheetName = process.env.SHEETS_TAB_NAME ?? "Leads";
-    if (!email || !key || !spreadsheetId) {
-      throw new Error("The Google Sheets mirror is not configured.");
+    if (!spreadsheetId) throw new Error("SHEETS_SPREADSHEET_ID is not set.");
+
+    const file = process.env.SHEETS_CREDENTIALS_FILE ?? process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (file) {
+      let parsed: { client_email?: string; private_key?: string };
+      try {
+        parsed = JSON.parse(readFileSync(file, "utf8"));
+      } catch {
+        // Never echo the path's contents — only that it could not be used.
+        throw new Error("The service-account key file could not be read. Check SHEETS_CREDENTIALS_FILE.");
+      }
+      if (!parsed.client_email || !parsed.private_key) {
+        throw new Error("The service-account key file is missing client_email or private_key.");
+      }
+      return { email: parsed.client_email, key: parsed.private_key, spreadsheetId, sheetName };
+    }
+
+    const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    // Env vars cannot hold real newlines, so an inline PEM carries literal \n.
+    const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+    if (!email || !key) {
+      throw new Error(
+        "The Google Sheets mirror has no credentials. Set SHEETS_CREDENTIALS_FILE to the service-account JSON.",
+      );
     }
     return { email, key, spreadsheetId, sheetName };
   }
@@ -101,7 +130,22 @@ class GoogleSheetsProvider implements SheetsProvider {
       headers: { ...init.headers, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     });
     if (!res.ok) {
-      throw new Error(`Google Sheets refused the request (${res.status}).`);
+      // Google explains itself in the body; a bare status code sends people hunting. The two
+      // that actually happen are "not shared with the service account" and "Sheets API not
+      // enabled", and they are indistinguishable without this.
+      const detail = await res.text().catch(() => "");
+      const reason = (() => {
+        try {
+          return (JSON.parse(detail) as { error?: { message?: string } }).error?.message ?? "";
+        } catch {
+          return detail.slice(0, 200);
+        }
+      })();
+      const hint =
+        res.status === 403
+          ? ` Share the spreadsheet with ${this.config().email} as an Editor, and make sure the Google Sheets API is enabled for the project.`
+          : "";
+      throw new Error(`Google Sheets refused the request (${res.status}).${reason ? ` ${reason}` : ""}${hint}`);
     }
     return res;
   }

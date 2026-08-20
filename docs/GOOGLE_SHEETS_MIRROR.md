@@ -47,16 +47,24 @@ Google account, and no one's password is involved.
 
 ## 4. Configure the server
 
-Add to `.env` (never commit it — keys come only from the environment, FR-SEC-12):
+Put the downloaded JSON key in `.secrets/` (gitignored, `chmod 600`) and point `.env` at it:
 
 ```bash
 SHEETS_PROVIDER=google
 SHEETS_SPREADSHEET_ID=<the id from step 1>
 SHEETS_TAB_NAME=Leads
-GOOGLE_SERVICE_ACCOUNT_EMAIL=proitbridge-sheets@<project>.iam.gserviceaccount.com
-# The whole private_key from the JSON, on ONE line, newlines written as \n
-GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n"
+SHEETS_CREDENTIALS_FILE=.secrets/google-sheets-service-account.json
 ```
+
+Only the *path* goes in `.env`; the key material stays in the file with its own permissions.
+Rotating the key means replacing that one file — no config change, no redeploy.
+
+`GOOGLE_APPLICATION_CREDENTIALS` is honoured too, if you already set it for other Google
+tooling. Failing both, an inline `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_PRIVATE_KEY` pair
+still works, but the file is preferred.
+
+> Tests force `SHEETS_PROVIDER=noop` regardless of `.env`, so no suite writes to the real
+> spreadsheet or depends on Google being reachable.
 
 ## 5. Backfill and run
 

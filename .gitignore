@@ -57,3 +57,6 @@ next-env.d.ts
 
 # tesseract.js OCR language model (downloaded at runtime, ~11MB)
 *.traineddata
+
+# Service-account keys and other local credentials — never committed.
+.secrets/

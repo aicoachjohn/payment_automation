@@ -21,4 +21,10 @@ export function loadEnv(): void {
   } catch {
     // .env is optional in CI where env is provided directly.
   }
+
+  // Tests never call Google. .env carries the live mirror settings for the dev server, and
+  // without this every runDailyAutomation() in the suite would make a real Sheets request —
+  // slow, flaky, and writing this machine's test data into the business's spreadsheet.
+  // A suite that needs the queue mocks @/server/sheets instead.
+  process.env.SHEETS_PROVIDER = "noop";
 }
