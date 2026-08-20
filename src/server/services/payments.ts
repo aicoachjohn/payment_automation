@@ -7,7 +7,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { AuditStatus, PaymentMethod, Prisma } from "@prisma/client";
-import { db } from "@/server/db";
+import { db, type DbTx } from "@/server/db";
 import { writeAudit } from "@/server/audit";
 import { requirePermission, type Actor } from "@/server/auth/permissions";
 import { getLeadForActor, advanceLeadStatus } from "@/server/services/leads";
@@ -346,6 +346,53 @@ export async function replaceProof(
 }
 
 /** Payments recorded on a lead's enrollment (for the sales lead page). */
+/**
+ * Re-derive a payment's expected amount from the CURRENT instalment schedule, writing it only
+ * when it actually differs and returning what changed so the caller can audit it.
+ *
+ * `expectedAmount` is DERIVED from the schedule, not a captured figure — unlike the received
+ * amount, date and Transaction ID, which BR-24 freezes and no path here may touch. When a
+ * course is corrected the schedule is rebuilt, and a payment taken under the old one is left
+ * quoting an instalment that no longer exists. Reopening the audit decision is the one moment
+ * that can be put right, so this is called from there.
+ *
+ * The caller MUST have already cleared APPROVED/locked: the FR-REC-09 trigger rejects this
+ * write otherwise, which is exactly the protection working.
+ */
+export async function reDeriveExpectedAmount(
+  tx: DbTx,
+  paymentId: string,
+): Promise<{ from: string; to: string } | null> {
+  const payment = await tx.payment.findUnique({
+    where: { id: paymentId },
+    include: { enrollment: true },
+  });
+  if (!payment?.enrollment.finalApprovedFee) return null;
+
+  // Same basis capturePayment uses: every other live payment on the enrollment.
+  const others = await tx.payment.findMany({
+    where: { enrollmentId: payment.enrollmentId, voided: false, id: { not: payment.id } },
+  });
+  const outstanding = calculateBalance(
+    payment.enrollment.finalApprovedFee,
+    others.map((o: { receivedAmount: Prisma.Decimal; auditStatus: AuditStatus; voided: boolean }) => ({
+      receivedAmount: o.receivedAmount.toString(),
+      auditStatus: o.auditStatus,
+      voided: o.voided,
+    })),
+  );
+  const schedule = Array.isArray(payment.enrollment.paymentSchedule)
+    ? (payment.enrollment.paymentSchedule as { number: number; amount: string }[])
+    : [];
+
+  const from = payment.expectedAmount.toFixed(2);
+  const to = expectedAmountFor(schedule, payment.paymentNumber, outstanding).toFixed(2);
+  if (from === to) return null;
+
+  await tx.payment.update({ where: { id: paymentId }, data: { expectedAmount: to } });
+  return { from, to };
+}
+
 export async function listPaymentsForLead(actor: Actor, leadId: string) {
   const lead = await getLeadForActor(actor, leadId);
   if (!lead.enrollment) return { payments: [], balance: "0.00", finalApprovedFee: null as string | null };

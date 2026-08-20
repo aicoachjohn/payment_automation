@@ -15,6 +15,8 @@ loadEnv();
 const leads = await import("@/server/services/leads");
 const { generateDraft } = await import("@/server/services/draft");
 const { performOverride, describeOverride } = await import("@/server/services/overrides");
+const { uploadProof, capturePayment } = await import("@/server/services/payments");
+const { approvePayment } = await import("@/server/services/audit-decisions");
 const { AuthorizationError } = await import("@/server/auth/permissions");
 
 const prisma = new PrismaClient();
@@ -41,6 +43,12 @@ async function readyLead(withDraft = true): Promise<{ leadId: string; enrollment
 async function cleanup() {
   const rows = await prisma.lead.findMany({ where: { leadSource: TAG }, select: { id: true, enrollment: { select: { id: true } } } });
   const eids = rows.map((l) => l.enrollment?.id).filter(Boolean) as string[];
+  if (eids.length) {
+    const pays = await prisma.payment.findMany({ where: { enrollmentId: { in: eids } }, select: { id: true } });
+    await prisma.paymentProof.deleteMany({ where: { paymentId: { in: pays.map((p) => p.id) } } });
+    await prisma.payment.updateMany({ where: { enrollmentId: { in: eids } }, data: { locked: false } });
+    await prisma.payment.deleteMany({ where: { enrollmentId: { in: eids } } });
+  }
   if (eids.length) await prisma.paymentDraft.deleteMany({ where: { enrollmentId: { in: eids } } });
   const ids = rows.map((l) => l.id);
   if (ids.length) { await prisma.enrollment.deleteMany({ where: { leadId: { in: ids } } }); await prisma.lead.deleteMany({ where: { id: { in: ids } } }); }
@@ -109,5 +117,66 @@ describe("only the SUPER_ADMIN role may override (BR-24 governance)", () => {
   it("a salesperson cannot preview or perform an override", async () => {
     const { leadId } = await readyLead(false);
     await expect(describeOverride(mathiew as never, { kind: "REASSIGN_LEAD", leadId, newSalespersonId: kevinId, reason: "x" })).rejects.toBeInstanceOf(AuthorizationError);
+  });
+});
+
+describe("reversing an audit re-derives the expected amount (FR-REC-08 stays true after a correction)", () => {
+  it("a schedule changed since capture no longer leaves a stale figure behind", async () => {
+    // The real sequence this came from: a payment is captured and approved, then the course
+    // turns out to be wrong and the fee is corrected. The instalment schedule is rebuilt, but
+    // the payment's expectedAmount is frozen by FR-REC-09 and points at a schedule that no
+    // longer exists. Reopening the decision is the one moment it can be put right.
+    const { leadId, enrollmentId } = await readyLead();
+    const proof = await uploadProof(mathiew, leadId, {
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new TextEncoder().encode("proof")]),
+      originalFilename: "p.jpg",
+    });
+    const captured = await capturePayment(mathiew, leadId, {
+      proof: { key: proof.key, checksum: proof.checksum, fileType: proof.fileType, fileSize: proof.fileSize, originalFilename: proof.originalFilename },
+      receivedAmount: "5000.00",
+      paymentDate: new Date("2026-08-01").toISOString(),
+      paymentMethod: "UPI",
+      transactionId: `REV-EXP-${Date.now()}`,
+      confirmations: { receivedAmount: true, paymentDate: true, transactionId: true, paymentMethod: true },
+      manualEntryNoOcr: true,
+    });
+    const nandhiya = { userId: (await prisma.user.findFirstOrThrow({ where: { email: "nandhiya@proitbridge.local" } })).id, role: Role.DATA_MGMT_AUDITOR };
+    await approvePayment(nandhiya, captured.paymentId, {
+      confirmations: { amountMatches: true, dateMatches: true, transactionIdMatches: true },
+      varianceReason: "advance",
+    });
+
+    const before = await prisma.payment.findUniqueOrThrow({ where: { id: captured.paymentId } });
+
+    // The course is corrected: the schedule is rebuilt around a different fee.
+    await prisma.enrollment.update({
+      where: { id: enrollmentId },
+      data: {
+        paymentSchedule: [
+          { number: 1, amount: "17499.50", dueDate: new Date("2026-08-01").toISOString(), percent: 50 },
+          { number: 2, amount: "17499.50", dueDate: new Date("2026-08-16").toISOString(), percent: 50 },
+        ],
+        finalApprovedFee: "34999.00",
+      },
+    });
+
+    await performOverride(superAdmin, {
+      kind: "REVERSE_AUDIT",
+      paymentId: captured.paymentId,
+      reason: "Course was corrected; reopening so the record can be re-audited.",
+    });
+
+    const after = await prisma.payment.findUniqueOrThrow({ where: { id: captured.paymentId } });
+    expect(after.auditStatus).toBe("PENDING_AUDIT");
+    expect(after.locked).toBe(false);
+    expect(after.expectedAmount.toFixed(2), "re-derived from the CURRENT schedule").toBe("17499.50");
+    expect(before.expectedAmount.toFixed(2)).not.toBe(after.expectedAmount.toFixed(2));
+
+    // The money actually received is untouched — only the derived figure moved.
+    expect(after.receivedAmount.toFixed(2)).toBe(before.receivedAmount.toFixed(2));
+
+    // And the change is on the record, not silent.
+    const trail = await prisma.auditTrail.findMany({ where: { entityId: captured.paymentId, action: "OVERRIDE_AUDIT_REVERSAL" } });
+    expect(JSON.stringify(trail)).toMatch(/expectedAmount/);
   });
 });

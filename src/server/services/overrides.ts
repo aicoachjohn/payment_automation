@@ -23,6 +23,7 @@ import { db, type DbTx } from "@/server/db";
 import { writeAudit } from "@/server/audit";
 import { requirePermission, AuthorizationError, type Actor, type Permission } from "@/server/auth/permissions";
 import { advanceLeadStatus } from "@/server/services/leads";
+import { reDeriveExpectedAmount } from "@/server/services/payments";
 import { notifyUser } from "@/server/notifications";
 import {
   assertPaymentApprovable,
@@ -181,6 +182,13 @@ async function reverseAudit(tx: DbTx, actor: Actor, input: Extract<OverrideInput
     // editable state; being != APPROVED withdraws it from Finance immediately (BR-15).
     data: { auditStatus: AuditStatus.PENDING_AUDIT, locked: false, delegatedAudit: false },
   });
+  // Reversal exists to CORRECT a record, and the usual reason one needs correcting is that
+  // the course or fee moved after capture — leaving the DERIVED instalment figure pointing at
+  // a schedule that no longer exists. Reopening is the one moment it can be re-derived, and
+  // the arithmetic lives with the rest of the payment rules, not in this override funnel.
+  // Must follow the unlock above: FR-REC-09 rejects the change while the row is still
+  // APPROVED+locked, and that guard is left exactly as strong as it was.
+  const reDerived = await reDeriveExpectedAmount(tx, payment.id);
   await writeAudit(tx, {
     entityType: "Payment",
     entityId: payment.id,
@@ -188,6 +196,7 @@ async function reverseAudit(tx: DbTx, actor: Actor, input: Extract<OverrideInput
     changes: [
       { field: "auditStatus", oldValue: was, newValue: AuditStatus.PENDING_AUDIT },
       { field: "reason", oldValue: null, newValue: input.reason.trim() },
+      ...(reDerived ? [{ field: "expectedAmount", oldValue: reDerived.from, newValue: reDerived.to }] : []),
     ],
     actor,
   });
