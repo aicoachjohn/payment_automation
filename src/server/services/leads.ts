@@ -15,7 +15,7 @@ import {
   ConcessionThresholdType,
   UserStatus,
   AuditStatus,
-  type Prisma,
+  Prisma,
 } from "@prisma/client";
 import { db, type DbTx } from "@/server/db";
 import { writeAudit } from "@/server/audit";
@@ -299,6 +299,24 @@ export async function selectCourse(
     sel.courseStarted ?? (commencingDate ? commencingDate.getTime() <= Date.now() : false);
 
   const existing = lead.enrollment;
+
+  // The fee lock is a real control, not a UI state: "unlock a locked fee" is a Sales Manager
+  // / Super Admin approval (FRD §2.2) precisely so a fee cannot move under payments that have
+  // already been quoted or approved against it. Re-saving this form used to walk straight
+  // past that — the locked fee was simply overwritten — so anything that would MOVE the fee
+  // is refused here. Batch and commencing date are not priced, so they stay editable.
+  const pricingChanged =
+    !!existing &&
+    (existing.program !== sel.program ||
+      existing.plan !== sel.plan ||
+      (existing.comboMode ?? null) !== (sel.comboMode ?? null));
+  if (existing?.feeLockedAt && pricingChanged) {
+    throw new LeadError(
+      "The fee is locked for this learner, so the course cannot be changed here. " +
+        "Ask a Sales Manager or the Super Admin to unlock the fee first — they must record a reason — then change it.",
+    );
+  }
+
   const concessionAmount = existing?.concessionAmount ?? money(0);
   const finalApprovedFee = round(sub(quote.standardFee, concessionAmount));
 
@@ -333,6 +351,11 @@ export async function selectCourse(
         gstAmount: quote.gstAmount.toFixed(2),
         gstPercent: quote.gstPercent.toFixed(2),
         finalApprovedFee: finalApprovedFee.toFixed(2),
+        // A schedule belongs to the fee it was split from. Changing the course leaves the old
+        // instalments contradicting the new total (and the wrong split for the combo mode),
+        // which then drives every future payment's expected amount and the learner's draft.
+        // Clear it; lockFee rebuilds it from the current fee when the draft is generated.
+        ...(pricingChanged ? { paymentSchedule: Prisma.DbNull } : {}),
       },
     });
     await writeAudit(tx, {

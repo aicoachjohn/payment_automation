@@ -12,11 +12,13 @@ loadEnv();
 const {
   createLead, getLeadForActor, updateBasicDetails, markInterested, selectCourse,
 } = await import("@/server/services/leads");
+const { lockFee, unlockFee } = await import("@/server/services/pricing");
 const { AuthorizationError } = await import("@/server/auth/permissions");
 
 const prisma = new PrismaClient();
 let mathiew: { userId: string; role: Role };
 let kevin: { userId: string; role: Role };
+let superAdmin: { userId: string; role: Role };
 const TAG = "phase4-it";
 
 async function cleanup() {
@@ -34,6 +36,8 @@ beforeAll(async () => {
   const k = await prisma.user.findFirstOrThrow({ where: { email: "kevin@proitbridge.local" } });
   mathiew = { userId: m.id, role: Role.SALESPERSON };
   kevin = { userId: k.id, role: Role.SALESPERSON };
+  const sa = await prisma.user.findFirstOrThrow({ where: { email: "super.admin@proitbridge.local" } });
+  superAdmin = { userId: sa.id, role: Role.SUPER_ADMIN };
   await cleanup();
 });
 afterAll(async () => {
@@ -86,5 +90,66 @@ describe("status pipeline advances in FRD §3.4 order (FR §3.4)", () => {
     await selectCourse(mathiew, id, { program: "COMBO_ALL_THREE", plan: "PREMIUM", comboMode: "DOUBLE_SHOT" });
     const e = await prisma.enrollment.findFirstOrThrow({ where: { leadId: id } });
     expect(e.finalApprovedFee?.toFixed(2)).toBe("89999.00");
+  });
+});
+
+describe("a locked fee cannot be moved by re-saving the course (FRD §2.2 — unlock is an approval)", () => {
+  let seq = 0;
+  async function lockedLead() {
+    seq += 1;
+    const { id } = await createLead(mathiew, { fullName: "Locked Fee Lead", leadSource: TAG });
+    await markInterested(mathiew, id);
+    await updateBasicDetails(mathiew, id, {
+      fullName: "Locked Fee Lead", dob: "1998-01-01", doorNo: "1", street: "Main", address: "Central",
+      district: "Chennai", state: "TN", pincode: "600001",
+      email: `lockedfee${seq}@line.com`, mobile: `98222001${String(seq).padStart(2, "0")}`,
+    });
+    await selectCourse(mathiew, id, { program: "ADV_DATA_SCIENCE_AI", plan: "ADVANCED", commencingDate: "2026-09-01" });
+    const e = await prisma.enrollment.findFirstOrThrow({ where: { leadId: id } });
+    await lockFee(e.id, mathiew);
+    return { leadId: id, enrollmentId: e.id };
+  }
+
+  it("refuses a course change while locked, and the fee does not move", async () => {
+    const { leadId, enrollmentId } = await lockedLead();
+    const before = await prisma.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
+
+    // Re-saving the Course & plan form used to overwrite the locked fee outright, walking
+    // straight past the Sales-Manager/Super-Admin unlock approval.
+    await expect(
+      selectCourse(mathiew, leadId, { program: "AGENTIC_AI_GENAI", plan: "ADVANCED", commencingDate: "2026-09-01" }),
+    ).rejects.toThrow(/fee is locked/i);
+
+    const after = await prisma.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
+    expect(after.program).toBe(before.program);
+    expect(after.finalApprovedFee?.toString()).toBe(before.finalApprovedFee?.toString());
+  });
+
+  it("allows it once the fee is properly unlocked, and clears the stale schedule", async () => {
+    const { leadId, enrollmentId } = await lockedLead();
+    const locked = await prisma.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
+    expect(locked.paymentSchedule, "lockFee builds a schedule").not.toBeNull();
+
+    await unlockFee(enrollmentId, superAdmin, "Learner bought a different course");
+    await selectCourse(mathiew, leadId, { program: "AGENTIC_AI_GENAI", plan: "ADVANCED", commencingDate: "2026-09-01" });
+
+    const after = await prisma.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
+    expect(after.program).toBe("AGENTIC_AI_GENAI");
+    expect(after.finalApprovedFee?.toFixed(2)).toBe("34999.00");
+    // The old instalments were split from the OLD fee, so they must not survive the change —
+    // they would drive every future expected amount and the learner's draft.
+    expect(after.paymentSchedule, "the stale schedule must be cleared").toBeNull();
+  });
+
+  it("still allows non-priced edits (batch) while locked", async () => {
+    const { leadId, enrollmentId } = await lockedLead();
+    const before = await prisma.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
+    await selectCourse(mathiew, leadId, {
+      program: before.program, plan: before.plan, comboMode: before.comboMode,
+      commencingDate: "2026-09-01", batch: "Batch-B",
+    });
+    const after = await prisma.enrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
+    expect(after.batch).toBe("Batch-B");
+    expect(after.finalApprovedFee?.toString()).toBe(before.finalApprovedFee?.toString());
   });
 });

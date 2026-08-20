@@ -66,7 +66,19 @@ export async function buildHandoverSnapshot(enrollmentId: string): Promise<Hando
   if (!e.program || !e.plan) missing.push("Course and plan");
   if (!e.finalApprovedFee) missing.push("Final approved fee");
   if (!e.commencingDate) missing.push("Commencing date");
-  if (approved.length === 0) missing.push("At least one approved payment");
+  // Say WHO the record is waiting on. "At least one approved payment" reads as a missing
+  // field the salesperson could go and supply, when in fact the work has moved to Data
+  // Management and there is nothing for Sales to do.
+  const awaiting = e.payments.filter(
+    (p) => p.auditStatus === AuditStatus.PENDING_AUDIT || p.auditStatus === AuditStatus.RESUBMITTED,
+  );
+  if (approved.length === 0) {
+    missing.push(
+      awaiting.length > 0
+        ? `Nandhiya's approval of payment #${awaiting.map((p) => p.paymentNumber).join(", #")} (with Data Management now — nothing for Sales to do)`
+        : "At least one approved payment",
+    );
+  }
   for (const p of approved) {
     if (!p.transactionId?.trim()) missing.push(`Transaction ID (payment #${p.paymentNumber})`);
     if (p.proofs.length === 0) missing.push(`Payment screenshot (payment #${p.paymentNumber})`);
@@ -78,10 +90,7 @@ export async function buildHandoverSnapshot(enrollmentId: string): Promise<Hando
   // above sends the salesperson to wait for something that will never arrive. Name the
   // payment, the gap, and the way out.
   if (e.finalApprovedFee) {
-    const awaitingAudit = e.payments.filter(
-      (p) => p.auditStatus === AuditStatus.PENDING_AUDIT || p.auditStatus === AuditStatus.RESUBMITTED,
-    );
-    for (const p of awaitingAudit) {
+    for (const p of awaiting) {
       if (gt(round(money(totalReceived).plus(p.receivedAmount)), e.finalApprovedFee.toString())) {
         missing.push(
           `Payment #${p.paymentNumber} (${formatINR(p.receivedAmount.toString())}) is more than the Final Approved Fee ` +
