@@ -26,24 +26,20 @@ for an India-based team). From the connection-details panel take **both** string
 | `DATABASE_URL` | the **pooled** one — its host contains `-pooler` | Runtime queries. Serverless opens a connection per invocation; the pooler is what keeps that survivable. |
 | `DIRECT_URL` | the **direct** one — no `-pooler` | `prisma migrate deploy`. Migrations run DDL and advisory locks, which a transaction pooler cannot carry. |
 
-> **If the build fails with `P1012 … Error validating datasource 'db'` pointing at line 16**,
-> `DIRECT_URL` is missing or empty. The Neon–Vercel integration is the usual cause: it sets
-> the pooled URL as `DATABASE_URL` but names the direct one `DATABASE_URL_UNPOOLED`, which
-> the schema does not look for. The build command falls back to `DATABASE_URL_UNPOOLED` and
-> then `POSTGRES_URL_NON_POOLING` when `DIRECT_URL` is unset, so an integration-provisioned
-> database works untouched — but setting `DIRECT_URL` explicitly is clearer, and it is the
-> only thing that works if you provisioned Neon yourself rather than through the integration.
+> **If the build fails with `P1012 … You must provide a nonempty direct URL`**, no direct
+> connection string is reaching the build. Hosts name it inconsistently — the Neon-Vercel
+> integration provisions it as `DATABASE_URL_UNPOOLED`, other setups as
+> `POSTGRES_URL_NON_POOLING` — so `scripts/vercel-build.sh` tries `DIRECT_URL`, then those
+> two, then `DATABASE_URL`, and stops with an explicit message naming what to set if all
+> four are empty. Prisma validates BOTH urls whenever it reads the schema, including during
+> `generate`, which is why an empty one fails before anything else runs.
+>
+> Setting `DIRECT_URL` yourself is still the right fix: falling back to `DATABASE_URL` means
+> migrations run through the pooler, which can fail on advisory locks (the script warns when
+> it detects a `-pooler` host).
 >
 > Check the variable is enabled for the environment you are deploying. A value saved only
 > for Production does not exist in a Preview build, which fails exactly the same way.
-
-That two-URL split is not a Vercel workaround — it is already how `prisma/schema.prisma`
-is written, for FR-SEC-11 (a restricted runtime role, an owner role for DDL). On Neon both
-strings are the same role, so you lose the privilege separation that the self-hosted
-deployment has. If you want it back, create a second Neon role with `UPDATE`/`DELETE`
-revoked on `audit_trail` and `super_admin_activity` and use it for `DATABASE_URL`; the
-append-only guarantee (rule 5) is otherwise enforced only by application code and the
-migration triggers.
 
 Append `?sslmode=require` to both if Neon has not already.
 
@@ -105,7 +101,8 @@ figures, which the app already supports as the fallback path).
 Import the GitHub repository at <https://vercel.com/new>. Vercel detects Next.js and pnpm
 from the lockfile. `vercel.json` in the repo root supplies the rest:
 
-- **Build command** — `prisma generate && prisma migrate deploy && next build`.
+- **Build command** — `scripts/vercel-build.sh`, which resolves the direct database URL
+  (see above), generates the Prisma Client, applies pending migrations and builds.
   `prisma generate` is explicit because Vercel restores `node_modules` from cache without
   re-running install scripts, so the generated client would otherwise go stale.
   `prisma migrate deploy` applies pending migrations against `DIRECT_URL` on every deploy.
