@@ -48,8 +48,15 @@ This app needs two environment variables in Vercel
 They differ only in the host. DATABASE_URL serves runtime queries; DIRECT_URL
 runs migrations, which cannot go through a connection pooler.
 
-Check they are enabled for the environment you are deploying — a value saved
-only for Production does not exist in a Preview build.
+Two things that make a correctly-saved variable still arrive empty here:
+
+  · SCOPE — tick Production, Preview AND Development when saving. A value
+    saved only for Preview does not exist in a Production build.
+
+  · REDEPLOY — "Redeploy" on an existing deployment can reuse that build's
+    environment snapshot, so variables saved afterwards are not picked up.
+    Push a commit (or use Redeploy with the build cache disabled) to get a
+    build that reads the current values.
 
 Full walkthrough: docs/VERCEL_DEPLOYMENT.md
 ────────────────────────────────────────────────────────────────────────────
