@@ -24,8 +24,11 @@ done
 # retained (FR-SEC-31). This distinguishes "the variable is missing" from "it is present
 # under a name we do not read", which the checks above cannot tell apart.
 echo "  ---- database-related variable names visible to this build ----"
-env | cut -d= -f1 | grep -Ei 'database|postgres|^pg|neon|_url$' | sort | sed 's/^/  seen: /' || true
-echo "  ---- $(env | wc -l | tr -d ' ') variables in total ----"
+# Only lines that actually look like NAME=... are assignments; a multi-line value (the git
+# commit message, for one) would otherwise have its own lines mistaken for variable names.
+env | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | cut -d= -f1 |
+  grep -Ei 'database|postgres|^pg|neon|_url$' | sort | sed 's/^/  seen: /' || true
+echo "  ---- $(env | grep -cE '^[A-Za-z_][A-Za-z0-9_]*=') variables in total ----"
 
 DIRECT_URL_SOURCE="DIRECT_URL"
 if [ -z "${DIRECT_URL:-}" ]; then
