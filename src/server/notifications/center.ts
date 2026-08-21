@@ -74,20 +74,3 @@ export async function markAllRead(actor: Actor): Promise<void> {
     data: { readAt: new Date() },
   });
 }
-
-// ── Preferences ────────────────────────────────────────────────────────────────
-
-export async function getPreferences(actor: Actor): Promise<{ type: string; label: string; emailEnabled: boolean }[]> {
-  const rows = await db.notificationPreference.findMany({ where: { userId: actor.userId } });
-  const byType = new Map(rows.map((r) => [r.type, r.emailEnabled]));
-  return NOTIFICATION_TYPES.map((t) => ({ type: t.type, label: t.label, emailEnabled: byType.get(t.type) ?? true }));
-}
-
-export async function setPreference(actor: Actor, type: string, emailEnabled: boolean): Promise<void> {
-  if (!NOTIFICATION_TYPES.some((t) => t.type === type)) throw new Error("Unknown notification type.");
-  await db.notificationPreference.upsert({
-    where: { userId_type: { userId: actor.userId, type } },
-    create: { userId: actor.userId, type, emailEnabled },
-    update: { emailEnabled },
-  });
-}

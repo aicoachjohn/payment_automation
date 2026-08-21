@@ -64,7 +64,7 @@ async function raiseException(kind: string, dedupeKey: string, detail: string, o
   if (shouldNotify) {
     const recipients = await usersInRoles([Role.SUPER_ADMIN, Role.FINANCE_REVIEWER]);
     for (const r of recipients) {
-      await notifyUser({ recipientId: r.id, recipientEmail: r.email, type: "RECONCILIATION_EXCEPTION", subject: `Reconciliation exception: ${kind}`, body: detail, relatedEntityType: opts.enrollmentId ? "Enrollment" : undefined, relatedEntityId: opts.enrollmentId });
+      await notifyUser({ recipientId: r.id, type: "RECONCILIATION_EXCEPTION", subject: `Reconciliation exception: ${kind}`, body: detail, relatedEntityType: opts.enrollmentId ? "Enrollment" : undefined, relatedEntityId: opts.enrollmentId });
     }
   }
 }

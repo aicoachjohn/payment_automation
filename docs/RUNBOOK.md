@@ -46,7 +46,8 @@ reconciliation. Idempotent — a double run sends nothing twice. Check the last 
 - **DB down:** `/api/health` returns 503; failover / restore from the latest backup;
   communicate RTO.
 - **Failed email deliveries:** surface as `Notification.status = FAILED` and on the
-  Super Admin workflow-health panel; check `EMAIL_API_KEY` / SPF-DKIM / provider status.
+  Super Admin workflow-health panel. There is no email channel to check — notifications
+  are in-app only, so a delivery failure means the Notification row was not written.
 - **Reconciliation exception raised:** `/admin/reconciliation` — investigate, acknowledge,
   resolve with a note. Rajesh is notified in parallel (FR-REC-12).
 - **Break-glass login used:** the primary Super Admin and Rajesh are alerted (NFR-07a);

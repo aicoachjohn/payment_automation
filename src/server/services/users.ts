@@ -86,7 +86,6 @@ export async function createUser(
 
   await notifyUser({
     recipientId: user.id,
-    recipientEmail: email,
     type: "ACCOUNT_CREATED",
     subject: "Your ProITbridge account",
     body: `An account has been created for you (role: ${input.role}). Temporary password: ${plain}\nYou will be required to change it at first sign-in.`,

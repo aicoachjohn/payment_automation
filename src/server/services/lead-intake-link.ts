@@ -204,7 +204,6 @@ export async function submitIntake(
   const proofNote = staged.length ? ` and attached ${staged.length} payment proof${staged.length > 1 ? "s" : ""} to confirm` : "";
   await notifyUser({
     recipientId: sp.id,
-    recipientEmail: sp.email,
     type: "LEAD_SELF_INTAKE",
     subject: "A lead completed your intake form",
     body: `${data.fullName.trim()} filled their enrollment details via your intake link${proofNote}.`,

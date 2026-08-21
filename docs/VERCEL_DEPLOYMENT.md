@@ -75,7 +75,7 @@ you use preview deployments). `.env.example` documents every one of them.
 | `CRON_SECRET` | `openssl rand -base64 32` — Vercel Cron sends it as a bearer token |
 | `OCR_PROVIDER` | `vision` with an `OCR_API_KEY`, or `mock`. **Not `local`** — see below |
 | `OCR_API_KEY` | Google Cloud Vision key, if `OCR_PROVIDER=vision` |
-| `EMAIL_PROVIDER` / `EMAIL_API_KEY` / `EMAIL_FROM` | your mail provider; `console` sends nothing |
+
 | `SESSION_TIMEOUT_MINUTES` / `SUPERADMIN_SESSION_TIMEOUT_MINUTES` | `30` / `15` |
 
 **Google Sheets mirror** (optional — see `GOOGLE_SHEETS_MIRROR.md`). Vercel has no

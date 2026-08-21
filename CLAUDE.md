@@ -62,7 +62,9 @@ collected. Nothing hands itself over: every hop is submitted by a person (see ru
 11. **Every stage outcome reaches the people waiting on it.** Nandhiya approving, rejecting
     or asking for a correction notifies the owning salesperson; her hand-off to Finance
     notifies them too; and Rajesh's decision — either way — notifies Nandhiya AND the
-    salesperson. Each role reaches `/handover` from its own navigation and sees counts by
+    salesperson. **Delivery is IN-APP ONLY** — email was removed by business decision, so
+    the notification centre at `/notifications` is the single channel and the app has to be
+    opened to be seen. Each role reaches `/handover` from its own navigation and sees counts by
     stage, scoped to what it owns (a salesperson sees only their own submissions).
 12. **A record only moves because a person moved it.** The handover travels
     Sales → Data Management → Finance, and each hop is an explicit submission. The Day-15
@@ -104,23 +106,18 @@ collected. Nothing hands itself over: every hop is submitted by a person (see ru
   is enforced — check it by hand whenever a Finance capability is touched. Rajesh's decision does **not** filter his statement: a payment
   counts from the moment Nandhiya approves it (BR-15), so collected money can never go
   missing from Finance's totals while a sign-off is pending.
-- **Two-factor is OFF by business decision — everyone signs in with a password alone.**
-  Which roles must clear an emailed code is config, not code: `two_fa_required_roles` in
-  SystemConfig, currently `[]`. Put role names back in that array to reinstate it (a MISSING
-  key falls back to the three money-facing roles, so an unreadable config fails toward asking).
-  The per-user `twoFaEnabled` flag still forces a code for an individual. Everything below
-  describes the mechanism, which is intact and tested, and applies whenever it is switched on.
+- **Two-factor is DEAD, not merely off.** The 6-digit code was delivered by email and there
+  is no email in this application any more, so `login()` never requires a code regardless of
+  `two_fa_required_roles` or a user's `twoFaEnabled` flag. That is deliberate: honouring
+  either would demand a code nobody can receive, locking that person out permanently — and
+  with no password-reset flow left, nothing could rescue them. The OTP verification path,
+  the `/login/otp` page and the `TrustedDevice` machinery are left in place but unreachable;
+  restoring two-factor means restoring a delivery channel first.
+- **There is no password reset.** No "forgot password" link, no emailed reset link, no
+  `/reset-password` page — removed with email by business decision. A forgotten password is
+  reset by a Super Admin under User Management. Users can still change their own password
+  any time from **My Profile** (`/account`), which requires the current one.
 
-  The 6-digit code is emailed (there is no SMS path). After it is entered, that ONE
-  browser is remembered **until the end of the IST working day — 04:00 IST, not midnight** —
-  and only the password is needed until then. The late boundary keeps an evening session in
-  one piece; because it is still well before office hours, the first sign-in each morning is
-  always challenged, which a rolling 24-hour window would not do. Trust is a `TrustedDevice`
-  row — the cookie is just a hashed reference — so it is bound to one browser AND one user,
-  and dies with any password change, role change, deactivation or reset (all funnel through
-  `revokeAllUserSessions`). Config: `two_fa_trust_scope` = `working_day` (default) or `off` to
-  demand the code every time (anything unrecognised fails safe to `off`), and
-  `two_fa_trust_day_end_hour_ist` = the boundary hour 0-23 (default 4; 0 = midnight).
 - Exactly **one active Super Admin** (BR-23). A second credential may exist only as a
   documented break-glass account; any login with it alerts the primary Super Admin and
   Rajesh.
@@ -220,7 +217,7 @@ PENDING_AUDIT ──► APPROVED
 ### Where things live
 
 ```
-src/app/(auth)/        login, forgot-password, reset-password
+src/app/(auth)/        login, forced first-login password change
 src/app/(sales)/        salesperson + sales manager dashboards
 src/app/(datamgmt)/     Nandhiya's L1 audit dashboard
 src/app/(finance)/      Rajesh's read-only finance dashboard

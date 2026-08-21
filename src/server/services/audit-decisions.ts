@@ -237,7 +237,6 @@ async function decideWithReason(
     for (const recipient of [{ id: payment.submittedBy, email: undefined as string | undefined }, ...managers]) {
       await notifyUser({
         recipientId: recipient.id,
-        recipientEmail: recipient.email,
         type: "PAYMENT_REJECTED",
         subject: `Payment rejected — ${payment.enrollment.lead.fullName}`,
         body,

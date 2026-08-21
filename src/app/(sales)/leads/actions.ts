@@ -28,7 +28,7 @@ import {
   voidLead,
 } from "@/server/services/leads";
 import { extractLeadFromText, extractLeadFromUpload, LeadIntakeError } from "@/server/services/lead-intake";
-import { generateDraft, emailDraft } from "@/server/services/draft";
+import { generateDraft } from "@/server/services/draft";
 
 export const createLeadAction = authActionClient
   .schema(leadCreateSchema)
@@ -122,13 +122,6 @@ export const generateDraftAction = authActionClient
     const draft = await generateDraft(ctx.actor, parsedInput.leadId);
     revalidatePath(`/leads/${parsedInput.leadId}`);
     return { ok: true as const, ...draft };
-  });
-
-export const emailDraftAction = authActionClient
-  .schema(leadIdSchema)
-  .action(async ({ parsedInput, ctx }) => {
-    await emailDraft(ctx.actor, parsedInput.leadId);
-    return { ok: true as const };
   });
 
 /** Remove (void) a lead the salesperson added — soft delete with a reason (BR-21/BR-26). */

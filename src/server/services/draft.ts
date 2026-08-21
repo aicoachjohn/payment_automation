@@ -204,27 +204,5 @@ export async function getDraftVersion(actor: Actor, leadId: string, version?: nu
     orderBy: { version: "desc" },
   });
   if (!draft) throw new DraftError("No draft exists for this lead.");
-  return { version: draft.version, content: draft.draftContent, learnerName: lead.fullName, learnerEmail: lead.email };
-}
-
-/** Send the latest draft to the learner's email via the NotificationProvider (FR-SAL-34). */
-export async function emailDraft(actor: Actor, leadId: string): Promise<void> {
-  const draft = await getDraftVersion(actor, leadId);
-  if (!draft.learnerEmail) throw new DraftError("This lead has no email address on file.");
-  const { sendEmail } = await import("@/server/notifications");
-  await sendEmail({
-    to: draft.learnerEmail,
-    subject: "Your ProITbridge enrollment & payment details",
-    body: draft.content,
-  });
-  await db.$transaction(async (tx) => {
-    const lead = await tx.lead.findUniqueOrThrow({ where: { id: leadId }, include: { enrollment: true } });
-    await writeAudit(tx, {
-      entityType: "Enrollment",
-      entityId: lead.enrollment!.id,
-      action: "DRAFT_EMAILED",
-      changes: [{ field: "draftVersion", oldValue: null, newValue: draft.version }],
-      actor,
-    });
-  });
+  return { version: draft.version, content: draft.draftContent, learnerName: lead.fullName };
 }

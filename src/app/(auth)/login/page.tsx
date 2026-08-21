@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { loginAction } from "@/app/(auth)/actions";
 
@@ -56,10 +55,10 @@ function LoginForm() {
       <button type="submit" disabled={pending} className={button}>
         {pending ? "Signing in…" : "Sign in"}
       </button>
-      <p className="text-center text-sm">
-        <Link href="/forgot-password" className="font-medium text-brand-blue-600 hover:underline dark:text-brand-blue">
-          Forgot your password?
-        </Link>
+      {/* No self-service reset: email was removed, so a forgotten password is reset by a
+          Super Admin under User Management. Saying so beats a dead-end link. */}
+      <p className="text-center text-xs text-slate-500">
+        Forgotten your password? Ask a Super Admin to reset it for you.
       </p>
     </form>
   );

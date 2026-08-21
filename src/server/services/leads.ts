@@ -426,7 +426,6 @@ export async function requestConcession(
     for (const m of managers) {
       await notifyUser({
         recipientId: m.id,
-        recipientEmail: m.email,
         type: "CONCESSION_PENDING",
         subject: "Concession awaiting approval",
         body: `A concession of ${result.concessionAmount.toFixed(2)} on lead "${lead.fullName}" needs your approval.`,

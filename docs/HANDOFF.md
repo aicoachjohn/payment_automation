@@ -71,7 +71,7 @@ verification; `must_change_password` true for the rest).
   #6..14], `no-hardcoded-params.test.ts` [NFR-16], `log-privacy.test.ts` [FR-SEC-31].)
 - Phase 12 fixed a real gap: **rejection now notifies the salesperson + Sales Manager**
   (FR-SAL-65) — `audit-decisions.ts` reject path.
-- New provider adapters are env-selected: `EMAIL_PROVIDER=sendgrid`, `OCR_PROVIDER=vision`
+- New provider adapters are env-selected: `OCR_PROVIDER=vision`, `STORAGE_PROVIDER=blob`
   (both real REST via `fetch`, no SDK). ClamAV scan + S3 storage remain structured adapters
   to wire at deploy. Health at `GET /api/health`; structured logger `src/server/log.ts`.
 - Deployment: `Dockerfile`, `docker-compose.prod.yml`, `.github/workflows/ci.yml`,

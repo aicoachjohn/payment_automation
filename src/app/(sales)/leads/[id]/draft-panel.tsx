@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatDate } from "@/lib/format";
-import { generateDraftAction, emailDraftAction } from "@/app/(sales)/leads/actions";
+import { generateDraftAction } from "@/app/(sales)/leads/actions";
 
 export interface DraftVersion {
   version: number;
@@ -52,15 +52,6 @@ export function DraftPanel({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  function email() {
-    setBanner(null);
-    start(async () => {
-      const res = await emailDraftAction({ leadId });
-      if (res?.serverError) return setBanner(res.serverError);
-      setBanner("Draft emailed to the learner (dev: see server console).");
-    });
-  }
-
   const waLink =
     whatsappEnabled && current && learnerMobile
       ? `https://wa.me/${learnerMobile.replace(/\D/g, "")}?text=${encodeURIComponent(current.content)}`
@@ -94,11 +85,6 @@ export function DraftPanel({
           <a className={`${btn} border border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800`} href={`/api/leads/${leadId}/draft?version=${current.version}`} target="_blank" rel="noreferrer">
             Download PDF
           </a>
-        )}
-        {current && (
-          <button className={`${btn} border border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800`} disabled={pending} onClick={email}>
-            Send by email
-          </button>
         )}
         {waLink && (
           <a className={`${btn} border border-green-300 text-green-700 hover:bg-green-50`} href={waLink} target="_blank" rel="noreferrer">

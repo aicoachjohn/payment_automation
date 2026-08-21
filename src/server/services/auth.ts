@@ -5,7 +5,7 @@
  * deliberately generic to avoid account enumeration.
  */
 import "server-only";
-import { createHash, randomInt } from "node:crypto";
+import { createHash } from "node:crypto";
 import { Role, UserStatus } from "@prisma/client";
 import { db } from "@/server/db";
 import { SECURITY } from "@/lib/constants";
@@ -15,12 +15,11 @@ import {
   createSession,
   getCurrentSessionRecord,
   markTwoFaVerified,
-  setSessionOtp,
   revokeAllUserSessions,
   revokeCurrentSession,
 } from "@/server/auth/session";
-import { hasTrustedDevice, issueTrustedDevice } from "@/server/auth/trusted-device";
-import { notifyUser, sendEmail } from "@/server/notifications";
+import { issueTrustedDevice } from "@/server/auth/trusted-device";
+import { notifyUser } from "@/server/notifications";
 import { getConfigValue } from "@/server/services/system-config";
 
 /**
@@ -79,24 +78,6 @@ async function findPrimarySuperAdmin() {
   });
 }
 
-/** Generate, store (hashed) and email a 6-digit OTP for a session (FR-AUTH-10). */
-async function issueOtp(sessionId: string, email: string): Promise<void> {
-  // Test hook: a deterministic OTP for e2e, allowed ONLY outside production and only
-  // when explicitly enabled. Never active in a real deployment.
-  const fixed =
-    process.env.NODE_ENV !== "production" && process.env.E2E_FIXED_OTP
-      ? process.env.E2E_FIXED_OTP
-      : null;
-  const code =
-    fixed ?? String(randomInt(0, 10 ** SECURITY.OTP_LENGTH)).padStart(SECURITY.OTP_LENGTH, "0");
-  const expiresAt = new Date(Date.now() + SECURITY.OTP_TTL_MINUTES * 60_000);
-  await setSessionOtp(sessionId, sha256(code), expiresAt);
-  await sendEmail({
-    to: email,
-    subject: "Your ProITbridge verification code",
-    body: `Your one-time verification code is ${code}. It expires in ${SECURITY.OTP_TTL_MINUTES} minutes. If you did not attempt to sign in, contact your Super Admin.`,
-  });
-}
 
 export async function login(
   email: string,
@@ -144,7 +125,6 @@ export async function login(
       if (admin) {
         await notifyUser({
           recipientId: admin.id,
-          recipientEmail: admin.email,
           type: "SECURITY_ALERT",
           subject: "Account locked after failed logins",
           body: `The account ${user.email} was locked after ${failed} consecutive failed login attempts.`,
@@ -163,25 +143,23 @@ export async function login(
   });
   await logSecurity("LOGIN_SUCCESS", user.id, ctx.ip);
 
-  // 2FA applies by role (and per-user opt-in), but the code is asked for once per window
-  // rather than on every sign-in: a browser that already passed it today is let through on
-  // the password alone. Checked BEFORE the session is created so the session is opened
-  // already-verified rather than being patched up afterwards.
-  const twoFaRequired = (await twoFaRequiredRoles()).has(user.role) || user.twoFaEnabled;
-  const deviceTrusted = twoFaRequired ? await hasTrustedDevice(user.id) : false;
-  const mustEnterOtp = twoFaRequired && !deviceTrusted;
-
-  const { sessionId } = await createSession({
+  // Two-factor is NEVER required, and this is deliberate rather than a config default.
+  //
+  // The 6-digit code was delivered by email, and email was removed from this application
+  // by business decision. Honouring `two_fa_required_roles` or a user's `twoFaEnabled`
+  // flag would therefore demand a code that can no longer reach anybody — locking that
+  // person out permanently, with no password-reset flow left to rescue them either.
+  //
+  // So the session is opened already-verified. The config keys and the OTP verification
+  // path are left in place but are unreachable; restoring two-factor means restoring a
+  // delivery channel first.
+  await createSession({
     userId: user.id,
     role: user.role,
-    twoFaRequired: mustEnterOtp,
+    twoFaRequired: false,
     ip: ctx.ip,
     userAgent: ctx.userAgent,
   });
-
-  // Worth a security-log line: it records a sign-in that skipped the code, and by which
-  // device, so an audit can still reconstruct how someone got in.
-  if (deviceTrusted) await logSecurity("TWO_FA_SKIPPED_TRUSTED_DEVICE", user.id, ctx.ip);
 
   // Super Admin login → notify Rajesh (NFR-07a). Break-glass → alert primary SA + Rajesh.
   if (user.role === Role.SUPER_ADMIN) {
@@ -189,7 +167,6 @@ export async function login(
     if (rajesh) {
       await notifyUser({
         recipientId: rajesh.id,
-        recipientEmail: rajesh.email,
         type: "SUPER_ADMIN_LOGIN",
         subject: "Super Admin signed in",
         body: `A Super Admin (${user.email}) signed in at ${new Date().toISOString()}.`,
@@ -201,7 +178,6 @@ export async function login(
       for (const t of targets) {
         await notifyUser({
           recipientId: t.id,
-          recipientEmail: t.email,
           type: "BREAK_GLASS_LOGIN",
           subject: "BREAK-GLASS account used",
           body: `The break-glass Super Admin account (${user.email}) was used to sign in. Verify this was expected.`,
@@ -211,10 +187,6 @@ export async function login(
     }
   }
 
-  if (mustEnterOtp) {
-    await issueOtp(sessionId, user.email);
-    return { ok: true, step: "otp", home: ROLE_HOME[user.role] };
-  }
   if (user.mustChangePassword) {
     return { ok: true, step: "change-password", home: ROLE_HOME[user.role] };
   }
@@ -304,58 +276,4 @@ export async function changePassword(
   await createSession({ userId: user.id, role: user.role, twoFaRequired: false, ip: ctx.ip, userAgent: ctx.userAgent });
   void twoFaRequired;
   return { ok: true, home: ROLE_HOME[user.role] };
-}
-
-/** Always returns the same result to avoid account enumeration (FR-AUTH-05). */
-export async function requestPasswordReset(email: string, ctx: AuthContextInput = {}): Promise<void> {
-  const normalized = email.trim().toLowerCase();
-  const user = await db.user.findUnique({ where: { email: normalized } });
-  if (user && user.status === UserStatus.ACTIVE) {
-    // Invalidate previous unused tokens.
-    await db.passwordResetToken.updateMany({
-      where: { userId: user.id, usedAt: null },
-      data: { usedAt: new Date() },
-    });
-    const raw = createHash("sha256").update(`${user.id}:${Date.now()}:${randomInt(1e9)}`).digest("hex");
-    await db.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: sha256(raw),
-        expiresAt: new Date(Date.now() + SECURITY.RESET_TTL_MINUTES * 60_000),
-      },
-    });
-    const url = `${process.env.APP_URL ?? "http://localhost:3000"}/reset-password?token=${raw}`;
-    await sendEmail({
-      to: user.email,
-      subject: "Reset your ProITbridge password",
-      body: `Use this single-use link within ${SECURITY.RESET_TTL_MINUTES} minutes to reset your password:\n${url}\nIf you did not request this, you can ignore this email.`,
-    });
-    await logSecurity("PASSWORD_RESET_REQUESTED", user.id, ctx.ip);
-  }
-}
-
-export type ResetResult = { ok: true } | { ok: false; error: string };
-
-export async function resetPassword(
-  token: string,
-  newPassword: string,
-  ctx: AuthContextInput = {},
-): Promise<ResetResult> {
-  const record = await db.passwordResetToken.findUnique({ where: { tokenHash: sha256(token) } });
-  if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
-    return { ok: false, error: "This reset link is invalid or has expired." };
-  }
-  if (!isPasswordStrong(newPassword)) {
-    return { ok: false, error: "Password does not meet the required policy." };
-  }
-  await db.$transaction(async (tx) => {
-    await tx.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } });
-    await tx.user.update({
-      where: { id: record.userId },
-      data: { passwordHash: await hashPassword(newPassword), mustChangePassword: false, failedLoginCount: 0, lockedUntil: null },
-    });
-  });
-  await revokeAllUserSessions(record.userId);
-  await logSecurity("PASSWORD_RESET_COMPLETED", record.userId, ctx.ip);
-  return { ok: true };
 }

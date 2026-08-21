@@ -25,8 +25,6 @@ export const SECURITY = {
   OTP_LENGTH: 6,
   OTP_TTL_MINUTES: 10,
   OTP_MAX_ATTEMPTS: 5,
-  /** Single-use password reset link lifetime (FR-AUTH-05). */
-  RESET_TTL_MINUTES: 30,
   /** Absolute session lifetime regardless of activity. */
   SESSION_ABSOLUTE_HOURS: 12,
   /** Fallbacks if SystemConfig is unavailable (FR-AUTH-06, NFR-07a). */
@@ -48,7 +46,6 @@ export const PASSWORD_POLICY = {
  */
 export const RATE_LIMITS = {
   login: { limit: 20, windowMs: 60_000 },
-  forgotPassword: { limit: 10, windowMs: 60_000 },
   otp: { limit: 20, windowMs: 60_000 },
   intake: { limit: 15, windowMs: 60_000 },
 } as const;

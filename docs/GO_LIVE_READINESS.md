@@ -133,7 +133,7 @@ combined). See `UAT_EVIDENCE.md` for the table.
 2. Seed the real Pricing Master (D-01); confirm draft wording + bank details (D-02).
 3. Create the eight real user accounts; nominate Sales Manager + Super Admin; seal the
    break-glass credential and document the procedure (D-06).
-4. Wire real providers: `EMAIL_PROVIDER=sendgrid` (SPF/DKIM), `OCR_PROVIDER=vision`,
+4. Wire real providers: `OCR_PROVIDER=vision`, `STORAGE_PROVIDER=blob`,
    `STORAGE_PROVIDER=s3`, real virus scanner. Set all secrets in the secret store.
 5. Wire the uptime monitor to `/api/health` and the FR-SEC-41 alerts.
 6. Run the restore drill; run a load test at 25 users / 50k payments.

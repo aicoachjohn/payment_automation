@@ -78,7 +78,6 @@ const OVERRIDE_PERMISSION: Record<OverrideKind, Permission> = {
 
 interface NotifyIntent {
   recipientId: string;
-  recipientEmail?: string;
   type: string;
   subject: string;
   body: string;
@@ -100,8 +99,8 @@ async function usersInRoles(roles: Role[]): Promise<{ id: string; email: string 
   return db.user.findMany({ where: { role: { in: roles }, status: "ACTIVE" }, select: { id: true, email: true } });
 }
 
-function notify(list: { id: string; email: string }[], msg: Omit<NotifyIntent, "recipientId" | "recipientEmail">): NotifyIntent[] {
-  return list.map((u) => ({ recipientId: u.id, recipientEmail: u.email, ...msg }));
+function notify(list: { id: string; email: string }[], msg: Omit<NotifyIntent, "recipientId">): NotifyIntent[] {
+  return list.map((u) => ({ recipientId: u.id, ...msg }));
 }
 
 function monthYear(d: Date): string {
@@ -211,7 +210,7 @@ async function reverseAudit(tx: DbTx, actor: Actor, input: Extract<OverrideInput
     : `A rejected payment (${payment.transactionId}) for ${payment.enrollment.lead.fullName} has been returned to the audit queue. Reason: ${input.reason.trim()}`;
   const recipients = [
     ...notify(auditors, { type: "OVERRIDE_AUDIT_REVERSAL", subject: "Audit decision reversed", body, relatedEntityType: "Payment", relatedEntityId: payment.id }),
-    { recipientId: salesperson.id, recipientEmail: salesperson.email, type: "OVERRIDE_AUDIT_REVERSAL", subject: "Audit decision reversed", body, relatedEntityType: "Payment", relatedEntityId: payment.id },
+    { recipientId: salesperson.id, type: "OVERRIDE_AUDIT_REVERSAL", subject: "Audit decision reversed", body, relatedEntityType: "Payment", relatedEntityId: payment.id },
     // FR-SA-07: on reversing an APPROVED payment, notify Rajesh of the withdrawal.
     ...(wasApproved ? notify(financeUsers, { type: "OVERRIDE_AUDIT_REVERSAL", subject: "Approved payment withdrawn from collection", body, relatedEntityType: "Payment", relatedEntityId: payment.id }) : []),
   ];
@@ -252,7 +251,7 @@ async function unlockFee(tx: DbTx, actor: Actor, input: Extract<OverrideInput, {
     previousState: { feeLockedAt: e.feeLockedAt?.toISOString() ?? null },
     newState: { feeLockedAt: null },
     notify: [
-      { recipientId: e.lead.salesperson.id, recipientEmail: e.lead.salesperson.email, type: "OVERRIDE_FEE_UNLOCK", subject: "Fee unlocked", body, relatedEntityType: "Enrollment", relatedEntityId: e.id },
+      { recipientId: e.lead.salesperson.id, type: "OVERRIDE_FEE_UNLOCK", subject: "Fee unlocked", body, relatedEntityType: "Enrollment", relatedEntityId: e.id },
       ...notify(managers, { type: "OVERRIDE_FEE_UNLOCK", subject: "Fee unlocked", body, relatedEntityType: "Enrollment", relatedEntityId: e.id }),
     ],
   };
@@ -286,8 +285,8 @@ async function reassignLead(tx: DbTx, actor: Actor, input: Extract<OverrideInput
     previousState: { salespersonId: lead.salespersonId },
     newState: { salespersonId: to.id },
     notify: [
-      { recipientId: lead.salesperson.id, recipientEmail: lead.salesperson.email, type: "OVERRIDE_LEAD_REASSIGN", subject: "Lead reassigned", body, relatedEntityType: "Lead", relatedEntityId: lead.id },
-      { recipientId: to.id, recipientEmail: to.email, type: "OVERRIDE_LEAD_REASSIGN", subject: "Lead reassigned to you", body, relatedEntityType: "Lead", relatedEntityId: lead.id },
+      { recipientId: lead.salesperson.id, type: "OVERRIDE_LEAD_REASSIGN", subject: "Lead reassigned", body, relatedEntityType: "Lead", relatedEntityId: lead.id },
+      { recipientId: to.id, type: "OVERRIDE_LEAD_REASSIGN", subject: "Lead reassigned to you", body, relatedEntityType: "Lead", relatedEntityId: lead.id },
     ],
   };
 }
@@ -320,7 +319,7 @@ async function approveConcession(tx: DbTx, actor: Actor, input: Extract<Override
     previousState: { concessionStatus: lead.enrollment.concessionStatus },
     newState: { concessionStatus: "APPROVED" },
     notify: [
-      { recipientId: lead.salesperson.id, recipientEmail: lead.salesperson.email, type: "OVERRIDE_CONCESSION_APPROVE", subject: "Concession approved", body, relatedEntityType: "Lead", relatedEntityId: lead.id },
+      { recipientId: lead.salesperson.id, type: "OVERRIDE_CONCESSION_APPROVE", subject: "Concession approved", body, relatedEntityType: "Lead", relatedEntityId: lead.id },
       ...notify(financeUsers, { type: "OVERRIDE_CONCESSION_APPROVE", subject: "Above-threshold concession approved", body, relatedEntityType: "Lead", relatedEntityId: lead.id }),
     ],
   };
@@ -359,7 +358,7 @@ async function extendDeadline(tx: DbTx, actor: Actor, input: Extract<OverrideInp
     entityId: e.id,
     previousState: { followUpDueDate: oldDue },
     newState: { followUpDueDate: newDue, extendedDays: input.days },
-    notify: [{ recipientId: e.lead.salesperson.id, recipientEmail: e.lead.salesperson.email, type: "OVERRIDE_DEADLINE_EXTENSION", subject: "Deadline extended", body, relatedEntityType: "Enrollment", relatedEntityId: e.id }],
+    notify: [{ recipientId: e.lead.salesperson.id, type: "OVERRIDE_DEADLINE_EXTENSION", subject: "Deadline extended", body, relatedEntityType: "Enrollment", relatedEntityId: e.id }],
   };
 }
 
@@ -387,7 +386,7 @@ async function reverseOpsTransfer(tx: DbTx, actor: Actor, input: Extract<Overrid
     entityId: e.id,
     previousState: { handoverId: handover?.id ?? null },
     newState: { reversed: true },
-    notify: [{ recipientId: e.lead.salesperson.id, recipientEmail: e.lead.salesperson.email, type: "OVERRIDE_OPS_TRANSFER_REVERSAL", subject: "Operations transfer reversed", body, relatedEntityType: "Enrollment", relatedEntityId: e.id }],
+    notify: [{ recipientId: e.lead.salesperson.id, type: "OVERRIDE_OPS_TRANSFER_REVERSAL", subject: "Operations transfer reversed", body, relatedEntityType: "Enrollment", relatedEntityId: e.id }],
   };
 }
 
@@ -472,7 +471,7 @@ async function voidPayment(tx: DbTx, actor: Actor, input: Extract<OverrideInput,
     previousState: { voided: false, auditStatus: payment.auditStatus, withdrawnAmount: wasApproved ? payment.receivedAmount.toString() : "0.00" },
     newState: { voided: true },
     notify: [
-      { recipientId: salesperson.id, recipientEmail: salesperson.email, type: "OVERRIDE_VOID_PAYMENT", subject: "Payment voided", body, relatedEntityType: "Payment", relatedEntityId: payment.id },
+      { recipientId: salesperson.id, type: "OVERRIDE_VOID_PAYMENT", subject: "Payment voided", body, relatedEntityType: "Payment", relatedEntityId: payment.id },
       ...notify(finance, { type: "OVERRIDE_VOID_PAYMENT", subject: "Payment voided", body, relatedEntityType: "Payment", relatedEntityId: payment.id }),
     ],
   };

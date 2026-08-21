@@ -24,13 +24,6 @@ export const otpSchema = z.object({
   code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code."),
 });
 
-export const forgotPasswordSchema = z.object({ email: emailSchema });
-
-export const resetPasswordSchema = z.object({
-  token: z.string().min(10),
-  newPassword: strongPassword,
-});
-
 export const changePasswordSchema = z.object({
   currentPassword: z.string().optional(),
   newPassword: strongPassword,
@@ -466,5 +459,4 @@ export const followUpCreateSchema = z.object({
 
 export const taskIdSchema = z.object({ taskId: z.string().min(1) });
 export const notificationIdSchema = z.object({ notificationId: z.string().min(1) });
-export const notificationPrefSchema = z.object({ type: z.string().min(1), emailEnabled: z.boolean() });
 export const handoverEnrollmentSchema = z.object({ enrollmentId: z.string().min(1) });

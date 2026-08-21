@@ -194,7 +194,6 @@ export async function submitToDataMgmt(
   for (const a of auditors) {
     await notifyUser({
       recipientId: a.id,
-      recipientEmail: a.email,
       type: "HANDOVER_RECEIVED",
       subject: `Handover to review — ${e.lead.fullName}`,
       body: `${e.lead.fullName} has been handed over by Sales for your approval.`,
@@ -415,7 +414,6 @@ async function notifyRoles(
   for (const u of users) {
     await notifyUser({
       recipientId: u.id,
-      recipientEmail: u.email,
       type: msg.type,
       subject: msg.subject,
       body: msg.body,

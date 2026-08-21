@@ -60,7 +60,6 @@ export async function raiseFinanceQuery(
     recipients.map((r) =>
       notifyUser({
         recipientId: r.id,
-        recipientEmail: r.email,
         type: "FINANCE_QUERY",
         subject: `Finance query: ${input.subject.trim()}`,
         body: `Finance raised a query on payment ${payment.transactionId} for ${payment.enrollment.lead.fullName}. Open the query thread to respond.`,

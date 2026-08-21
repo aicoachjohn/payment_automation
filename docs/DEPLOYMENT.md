@@ -25,7 +25,7 @@ docker compose -f docker-compose.prod.yml up -d
 | `AUTH_SECRET` | Session cookie signing (jose). |
 | `PROOF_SIGNING_SECRET` | Short-lived signed proof-URL tokens. |
 | `STORAGE_PROVIDER` | `s3` in prod (private ACL, signed URLs) / `local` in dev. |
-| `EMAIL_PROVIDER` + `EMAIL_API_KEY` + `EMAIL_FROM` | `sendgrid` in prod; SPF/DKIM on the sending domain (D-04). |
+| _(no email vars)_ | Email was removed by business decision — notifications are in-app only. |
 | `OCR_PROVIDER` + `OCR_API_KEY` | `vision` in prod; timeout → manual entry (FR-SAL-47). |
 | `CRON_SECRET` | Auth for `POST /api/jobs/tick`. |
 | `APP_VERSION` | Surfaced by `/api/health`. |

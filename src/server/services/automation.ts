@@ -11,7 +11,7 @@
 import "server-only";
 import { AuditStatus, LeadStatus, Role } from "@prisma/client";
 import { db } from "@/server/db";
-import { notifyUser, sendEmail } from "@/server/notifications";
+import { notifyUser } from "@/server/notifications";
 import { getConfigNumber, getConfigValue } from "@/server/services/system-config";
 import { runOnce } from "@/server/jobs/runner";
 import { drainSheetSync } from "@/server/services/sheet-sync";
@@ -86,7 +86,6 @@ interface Candidate {
   enrollmentId: string;
   leadId: string;
   learnerName: string;
-  learnerEmail: string | null;
   salespersonId: string;
   salespersonEmail: string;
   anchor: Date; // approval time of the Course Starting Amount
@@ -115,7 +114,6 @@ async function candidates(): Promise<Candidate[]> {
       enrollmentId: e.id,
       leadId: e.leadId,
       learnerName: e.lead.fullName,
-      learnerEmail: e.lead.email,
       salespersonId: e.lead.salesperson.id,
       salespersonEmail: e.lead.salesperson.email,
       anchor: e.payments[0]!.auditedAt!,
@@ -123,10 +121,9 @@ async function candidates(): Promise<Candidate[]> {
 }
 
 async function fifteenDayRule(now: Date, summary: AutomationSummary): Promise<void> {
-  const [days, windowDays, learnerRemind] = await Promise.all([
+  const [days, windowDays] = await Promise.all([
     reminderDays(),
     getConfigNumber("down_payment_window_days", 15),
-    getConfigValue("learner_reminders_enabled"),
   ]);
   const managers = await usersInRoles([Role.SALES_MANAGER]);
   const list = await candidates();
@@ -154,14 +151,11 @@ async function fifteenDayRule(now: Date, summary: AutomationSummary): Promise<vo
     if (days.includes(n)) {
       const out = await runOnce("deadline-reminder", `deadline-reminder:${c.enrollmentId}:${dayKey}`, async () => {
         await notifyUser({
-          recipientId: c.salespersonId, recipientEmail: c.salespersonEmail, type: "DEADLINE_REMINDER",
+          recipientId: c.salespersonId, type: "DEADLINE_REMINDER",
           subject: `Down payment due — ${c.learnerName}`,
           body: `Day ${n} of ${windowDays}. The Down Payment for ${c.learnerName} is due by ${deadline.toISOString()}. ${windowDays - n} day(s) remain.`,
           relatedEntityType: "Enrollment", relatedEntityId: c.enrollmentId,
         });
-        if (learnerRemind === true && c.learnerEmail) {
-          await sendEmail({ to: c.learnerEmail, subject: "Your down payment is due soon", body: `Your down payment is due by ${deadline.toDateString()}.` });
-        }
         return { day: n };
       });
       if (out.ran) summary.remindersSent += 1;
@@ -173,7 +167,7 @@ async function fifteenDayRule(now: Date, summary: AutomationSummary): Promise<vo
         const recipients = [{ id: c.salespersonId, email: c.salespersonEmail }, ...managers];
         for (const r of recipients) {
           await notifyUser({
-            recipientId: r.id, recipientEmail: r.email, type: "DEADLINE_APPROACHING",
+            recipientId: r.id, type: "DEADLINE_APPROACHING",
             subject: `Deadline approaching — ${c.learnerName}`,
             body: `Only 2 days remain to collect the Down Payment for ${c.learnerName} (due ${deadline.toISOString()}).`,
             relatedEntityType: "Enrollment", relatedEntityId: c.enrollmentId,
@@ -202,7 +196,7 @@ async function notifyDownPaymentOverdue(c: Candidate, windowDays: number): Promi
     "The enrollment has NOT been moved — someone needs to chase it.";
   for (const r of recipients) {
     await notifyUser({
-      recipientId: r.id, recipientEmail: r.email, type: "DOWN_PAYMENT_OVERDUE",
+      recipientId: r.id, type: "DOWN_PAYMENT_OVERDUE",
       subject: `Down payment overdue — ${c.learnerName}`, body,
       relatedEntityType: "Enrollment", relatedEntityId: c.enrollmentId,
     });
@@ -265,7 +259,7 @@ async function staleTriggers(now: Date, summary: AutomationSummary): Promise<voi
   });
   for (const l of staleBasic) {
     const out = await runOnce("stale-basic", `stale-basic:${l.id}:${dayKey}`, () =>
-      notifyUser({ recipientId: l.salesperson.id, recipientEmail: l.salesperson.email, type: "BASIC_DETAILS_INCOMPLETE", subject: `Complete basic details — ${l.fullName}`, body: `${l.fullName} was marked Interested but basic details are still incomplete.`, relatedEntityType: "Lead", relatedEntityId: l.id }),
+      notifyUser({ recipientId: l.salesperson.id, type: "BASIC_DETAILS_INCOMPLETE", subject: `Complete basic details — ${l.fullName}`, body: `${l.fullName} was marked Interested but basic details are still incomplete.`, relatedEntityType: "Lead", relatedEntityId: l.id }),
     );
     if (out.ran) summary.staleNudges += 1;
   }
@@ -282,7 +276,7 @@ async function staleTriggers(now: Date, summary: AutomationSummary): Promise<voi
   });
   for (const l of staleDraft) {
     const out = await runOnce("stale-draft", `stale-draft:${l.id}:${dayKey}`, () =>
-      notifyUser({ recipientId: l.salesperson.id, recipientEmail: l.salesperson.email, type: "DRAFT_NO_PAYMENT", subject: `No payment yet — ${l.fullName}`, body: `A payment draft was shared for ${l.fullName} but no payment has been recorded.`, relatedEntityType: "Lead", relatedEntityId: l.id }),
+      notifyUser({ recipientId: l.salesperson.id, type: "DRAFT_NO_PAYMENT", subject: `No payment yet — ${l.fullName}`, body: `A payment draft was shared for ${l.fullName} but no payment has been recorded.`, relatedEntityType: "Lead", relatedEntityId: l.id }),
     );
     if (out.ran) summary.staleNudges += 1;
   }
@@ -316,7 +310,7 @@ async function ageingEscalation(now: Date, summary: AutomationSummary): Promise<
   const auditors = await usersInRoles([Role.DATA_MGMT_AUDITOR]);
   const out = await runOnce("audit-ageing", `audit-ageing:${istDateKey(now)}`, async () => {
     for (const a of auditors) {
-      await notifyUser({ recipientId: a.id, recipientEmail: a.email, type: "OPERATIONS_HANDOVER", subject: "Audit queue ageing", body: `${aged} payment(s) have been awaiting audit beyond ${ageHours}h.` });
+      await notifyUser({ recipientId: a.id, type: "OPERATIONS_HANDOVER", subject: "Audit queue ageing", body: `${aged} payment(s) have been awaiting audit beyond ${ageHours}h.` });
     }
     return { aged };
   });
