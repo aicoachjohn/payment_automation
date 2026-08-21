@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "prisma generate && prisma migrate deploy && next build",
+  "buildCommand": "export DIRECT_URL=\"${DIRECT_URL:-${DATABASE_URL_UNPOOLED:-${POSTGRES_URL_NON_POOLING:-}}}\" && prisma generate && prisma migrate deploy && next build",
   "crons": [
     {
       "path": "/api/jobs/tick",

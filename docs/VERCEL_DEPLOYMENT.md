@@ -26,6 +26,17 @@ for an India-based team). From the connection-details panel take **both** string
 | `DATABASE_URL` | the **pooled** one — its host contains `-pooler` | Runtime queries. Serverless opens a connection per invocation; the pooler is what keeps that survivable. |
 | `DIRECT_URL` | the **direct** one — no `-pooler` | `prisma migrate deploy`. Migrations run DDL and advisory locks, which a transaction pooler cannot carry. |
 
+> **If the build fails with `P1012 … Error validating datasource 'db'` pointing at line 16**,
+> `DIRECT_URL` is missing or empty. The Neon–Vercel integration is the usual cause: it sets
+> the pooled URL as `DATABASE_URL` but names the direct one `DATABASE_URL_UNPOOLED`, which
+> the schema does not look for. The build command falls back to `DATABASE_URL_UNPOOLED` and
+> then `POSTGRES_URL_NON_POOLING` when `DIRECT_URL` is unset, so an integration-provisioned
+> database works untouched — but setting `DIRECT_URL` explicitly is clearer, and it is the
+> only thing that works if you provisioned Neon yourself rather than through the integration.
+>
+> Check the variable is enabled for the environment you are deploying. A value saved only
+> for Production does not exist in a Preview build, which fails exactly the same way.
+
 That two-URL split is not a Vercel workaround — it is already how `prisma/schema.prisma`
 is written, for FR-SEC-11 (a restricted runtime role, an owner role for DDL). On Neon both
 strings are the same role, so you lose the privilege separation that the self-hosted
