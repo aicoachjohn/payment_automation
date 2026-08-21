@@ -12,11 +12,21 @@
 # person deploying know that, try each in turn.
 set -euo pipefail
 
+# Report which variables exist by NAME only. Never echo a value: connection strings carry
+# credentials and build logs are retained (FR-SEC-31).
+for name in DATABASE_URL DIRECT_URL DATABASE_URL_UNPOOLED POSTGRES_URL_NON_POOLING; do
+  eval "value=\${$name:-}"
+  [ -n "$value" ] && echo "  env: $name is set" || echo "  env: $name is EMPTY"
+done
+
+DIRECT_URL_SOURCE="DIRECT_URL"
 if [ -z "${DIRECT_URL:-}" ]; then
   # First non-empty candidate wins. An explicitly set DIRECT_URL always takes precedence.
-  for candidate in "${DATABASE_URL_UNPOOLED:-}" "${POSTGRES_URL_NON_POOLING:-}" "${DATABASE_URL:-}"; do
+  for name in DATABASE_URL_UNPOOLED POSTGRES_URL_NON_POOLING DATABASE_URL; do
+    eval "candidate=\${$name:-}"
     if [ -n "$candidate" ]; then
       export DIRECT_URL="$candidate"
+      DIRECT_URL_SOURCE="$name"
       break
     fi
   done
@@ -57,11 +67,20 @@ case "${DIRECT_URL}" in
     ;;
 esac
 
+echo "Using \$$DIRECT_URL_SOURCE as the migration connection."
+
 echo "Generating Prisma Client…"
-prisma generate
+prisma generate || { echo "FAILED at: prisma generate" >&2; exit 1; }
 
 echo "Applying database migrations…"
-prisma migrate deploy
+prisma migrate deploy || {
+  echo "FAILED at: prisma migrate deploy — the schema could not be applied." >&2
+  echo "Usually the database is unreachable, the credentials are wrong, or the" >&2
+  echo "connection is going through a pooler. See docs/VERCEL_DEPLOYMENT.md." >&2
+  exit 1
+}
 
 echo "Building the application…"
-next build
+next build || { echo "FAILED at: next build" >&2; exit 1; }
+
+echo "Build complete."
