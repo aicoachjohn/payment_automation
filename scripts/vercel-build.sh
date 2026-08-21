@@ -110,6 +110,23 @@ echo "Using \$$DIRECT_URL_SOURCE as the migration connection."
 echo "Generating Prisma Client…"
 prisma generate || { echo "FAILED at: prisma generate" >&2; exit 1; }
 
+# The init migration grants DML to `proitbridge_app`, the least-privilege role the app
+# connects as when self-hosted (FR-SEC-11). A managed Postgres has no such role and the
+# migration dies on "role does not exist", so create it first if it is missing.
+#
+# Non-fatal on purpose: if the connection lacks CREATEROLE the migration below fails with
+# its own, clearer message, and hiding that behind an error here would help nobody.
+echo "Ensuring the application role exists…"
+prisma db execute --url "$DIRECT_URL" --stdin <<'SQL' || echo "  (could not create the role; continuing — migrate will report if it was needed)" >&2
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'proitbridge_app') THEN
+    CREATE ROLE proitbridge_app NOLOGIN;
+  END IF;
+END
+$$;
+SQL
+
 echo "Applying database migrations…"
 prisma migrate deploy || {
   echo "FAILED at: prisma migrate deploy — the schema could not be applied." >&2

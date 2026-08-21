@@ -112,6 +112,36 @@ from the lockfile. `vercel.json` in the repo root supplies the rest:
   "run now" button. It is idempotent per IST day, so an extra call sends nothing twice.
   Vercel's Hobby plan permits daily crons only; this one is daily.
 
+## 4a. The least-privilege role, on a managed database
+
+The `init` migration grants DML to `proitbridge_app` — the restricted role the app connects
+as when self-hosted (FR-SEC-11), which cannot alter the schema and cannot UPDATE or DELETE
+`audit_trail`. A managed Postgres has no such role, so the migration used to die on
+`ERROR: role "proitbridge_app" does not exist`. The build now creates it if it is missing.
+
+**Be clear about what this does and does not buy you.** The role exists and holds the grants,
+but on Neon the app still connects with the connection string Neon issued, which is the
+database owner — so the privilege separation is nominal. The append-only guarantee (rule 5)
+then rests on the Prisma client extension in `src/server/db` and the migration triggers,
+not on the database refusing the write.
+
+To get the real thing: create a second Neon role, grant it membership of `proitbridge_app`,
+and set `DATABASE_URL` explicitly to that role's connection string. `DIRECT_URL` stays the
+owner, because migrations need to alter the schema.
+
+**If a migration has already failed against the database**, Prisma records it and refuses to
+apply anything further (`P3018`) until that record is cleared. On a database with no real
+data yet, the simplest recovery is to reset the schema from the Neon SQL Editor:
+
+```sql
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+```
+
+That drops `_prisma_migrations` along with everything else, so the next deploy starts clean.
+Never run it against a database holding real payment records — there, use
+`prisma migrate resolve --rolled-back <migration_name>` instead.
+
 ## 5. Seed the first users
 
 The database starts empty and there is no self-signup — user creation is Super Admin only,
