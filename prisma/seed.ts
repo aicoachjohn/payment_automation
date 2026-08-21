@@ -4,16 +4,23 @@
  * Creates the real ProITbridge team accounts, the complete Pricing Master (FRD §5.4.1 /
  * §5.4.2, all GST-inclusive at 18%), and the SystemConfig defaults.
  *
- * Each account gets a FRESH RANDOM password, printed once to the terminal at the end of the
- * run and stored nowhere else — not in a file, not in this repository, which is public. The
- * hash is all the database keeps. Every account is created with must_change_password = true,
- * so the printed value is good for exactly one sign-in.
+ * Passwords, two ways — both printed once to the terminal and stored nowhere else (not in a
+ * file, not in this repository, which is public; the database keeps only a hash):
+ *
+ *   SEED_TEMP_PASSWORD set  → that one temporary password for every account. Simplest to
+ *                             roll out to a team: one thing to tell everybody.
+ *   not set                 → a different random password per account. Safer, because one
+ *                             leaked password does not expose the other seven.
+ *
+ * Either way every account is created with must_change_password = true, so the value is good
+ * for exactly ONE sign-in before the app forces the user to replace it.
  *
  * Safe to re-run: an account that already exists is left completely alone.
  */
 import { PrismaClient, Role, Program, Plan, PricingStatus } from "@prisma/client";
 import { randomInt } from "node:crypto";
-import { hashPassword } from "../src/server/auth/password";
+import { hashPassword, isPasswordStrong } from "../src/server/auth/password";
+import { PASSWORD_POLICY } from "../src/lib/constants";
 import {
   DEFAULT_DRAFT_TEMPLATE,
   DEFAULT_BANK_DETAILS,
@@ -75,6 +82,26 @@ function pick(set: string): string {
 }
 
 /**
+ * One temporary password shared by every seeded account, when SEED_TEMP_PASSWORD is set.
+ *
+ * Validated up front rather than at each create: a password that fails the policy would be
+ * accepted here (the policy is checked when a user CHANGES their password, not when the seed
+ * sets one) and would then be rejected the moment they tried to replace it — an account
+ * nobody can get out of. Better to refuse to seed at all.
+ */
+function sharedTempPassword(): string | null {
+  const raw = process.env.SEED_TEMP_PASSWORD?.trim();
+  if (!raw) return null;
+  if (!isPasswordStrong(raw)) {
+    throw new Error(
+      `SEED_TEMP_PASSWORD does not meet the password policy: ${PASSWORD_POLICY.message} ` +
+        "Nothing has been seeded. Choose a stronger value and run again.",
+    );
+  }
+  return raw;
+}
+
+/**
  * A fresh 14-character password per account, from a CSPRNG (never Math.random).
  *
  * One character of every class the policy demands is included and then shuffled in, so a
@@ -103,6 +130,8 @@ async function seedUsers(): Promise<{ superAdminId: string; issued: IssuedCreden
   const issued: IssuedCredential[] = [];
   const existing: string[] = [];
   let superAdminId = "";
+  // Read once, before anything is written, so a bad value fails before a partial seed.
+  const shared = sharedTempPassword();
 
   for (const u of USERS) {
     const found = await prisma.user.findUnique({ where: { email: u.email }, select: { id: true } });
@@ -114,7 +143,7 @@ async function seedUsers(): Promise<{ superAdminId: string; issued: IssuedCreden
       continue;
     }
 
-    const password = generatePassword();
+    const password = shared ?? generatePassword();
     const created = await prisma.user.create({
       data: {
         name: u.name,
@@ -237,14 +266,25 @@ async function main(): Promise<void> {
   // in one go, then distributed to each person over a channel you trust — and not by
   // forwarding this whole log, which would show everyone everyone else's password.
   const width = Math.max(...issued.map((c) => c.email.length));
-  console.log(`\n${"─".repeat(width + 34)}`);
-  console.log("INITIAL PASSWORDS — shown once, never stored. Give each person their own.");
-  console.log("Each must be changed at first sign-in; the app forces it.");
-  console.log("─".repeat(width + 34));
-  for (const c of issued) {
-    console.log(`  ${c.email.padEnd(width)}   ${c.password}   (${c.role})`);
+  const rule = "─".repeat(width + 34);
+  const sharedOne = issued.every((c) => c.password === issued[0].password) ? issued[0].password : null;
+
+  console.log(`\n${rule}`);
+  if (sharedOne) {
+    console.log("TEMPORARY PASSWORD — the same for every account below:");
+    console.log(`\n    ${sharedOne}\n`);
+    console.log("Sign in with the FULL email address as the username. The app forces a new");
+    console.log("password immediately, so this value works for exactly one sign-in each.");
+    console.log(rule);
+    for (const c of issued) console.log(`  ${c.email.padEnd(width)}   ${c.name} — ${c.role}`);
+  } else {
+    console.log("INITIAL PASSWORDS — shown once, never stored. Give each person their own.");
+    console.log("Sign in with the FULL email address as the username. Each must be changed at");
+    console.log("first sign-in; the app forces it.");
+    console.log(rule);
+    for (const c of issued) console.log(`  ${c.email.padEnd(width)}   ${c.password}   (${c.role})`);
   }
-  console.log(`${"─".repeat(width + 34)}\n`);
+  console.log(`${rule}\n`);
 }
 
 main()

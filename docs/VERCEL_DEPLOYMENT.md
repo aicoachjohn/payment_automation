@@ -111,11 +111,23 @@ so someone has to exist first. Run the seed **from your machine against the Neon
 URL**, once:
 
 ```bash
+SEED_TEMP_PASSWORD='ProITbridge@2026' \
 DIRECT_URL="<neon-direct-url>" DATABASE_URL="<neon-direct-url>" pnpm db:seed
 ```
 
-This creates the eight team accounts and prints a **one-time password for each** to your
-terminal. That printout is the only place those passwords ever exist — they are not written
+This creates the eight team accounts, all sharing that one temporary password — the simplest
+thing to roll out, because there is a single value to tell everybody. **Users sign in with
+their full email address as the username**, in any capitalisation.
+
+Drop `SEED_TEMP_PASSWORD` and the seed instead generates a **different random password per
+account** and prints them. That is the safer option — one leaked password does not expose the
+other seven — at the cost of distributing eight separate values.
+
+Whichever you pick, the value must satisfy the password policy (8+ characters, an uppercase
+letter, a number and a symbol). The seed refuses to run rather than create an account whose
+temporary password would be rejected the moment the user tried to replace it.
+
+Either way the passwords are printed to your terminal. That printout is the only place those passwords ever exist — they are not written
 to a file and not stored anywhere but as a hash in the database. Capture it, give each person
 their own line over a channel you trust, and do not forward the whole block to everyone.
 
