@@ -1,12 +1,18 @@
 /**
  * Database seed (run via `pnpm db:seed` → `prisma db seed`, which loads .env).
  *
- * Creates one user per role with the exact FRD names, the complete Pricing Master
- * (FRD §5.4.1 / §5.4.2, all GST-inclusive at 18%), and the SystemConfig defaults.
- * Seed users are created with must_change_password = true and a password taken from
- * SEED_DEFAULT_PASSWORD (never hard-coded, never a real secret in VCS).
+ * Creates the real ProITbridge team accounts, the complete Pricing Master (FRD §5.4.1 /
+ * §5.4.2, all GST-inclusive at 18%), and the SystemConfig defaults.
+ *
+ * Each account gets a FRESH RANDOM password, printed once to the terminal at the end of the
+ * run and stored nowhere else — not in a file, not in this repository, which is public. The
+ * hash is all the database keeps. Every account is created with must_change_password = true,
+ * so the printed value is good for exactly one sign-in.
+ *
+ * Safe to re-run: an account that already exists is left completely alone.
  */
 import { PrismaClient, Role, Program, Plan, PricingStatus } from "@prisma/client";
+import { randomInt } from "node:crypto";
 import { hashPassword } from "../src/server/auth/password";
 import {
   DEFAULT_DRAFT_TEMPLATE,
@@ -16,63 +22,126 @@ import {
 
 const prisma = new PrismaClient();
 
-const SEED_PASSWORD = process.env.SEED_DEFAULT_PASSWORD ?? "ChangeMe#123";
-
 interface SeedUser {
   name: string;
   email: string;
   mobile: string;
   role: Role;
+  /**
+   * BR-23 allows exactly ONE active Super Admin. A second Super Admin credential may exist
+   * only as a documented break-glass account: it works normally, but it is marked so that
+   * emergency use is visible rather than silent (docs/PRIVILEGED_ACCESS.md).
+   */
+  breakGlass?: boolean;
 }
 
+/**
+ * The real ProITbridge team.
+ *
+ * Emails are stored LOWER-CASE. Sign-in normalises the address before looking it up, so a
+ * stored capital letter would simply never match and the account could not be used.
+ *
+ * Mobile numbers are placeholders — the schema requires the field, nobody has supplied the
+ * real numbers, and an obviously fake number is safer than a plausible wrong one. A Super
+ * Admin can correct each under User Management.
+ *
+ * No Sales Manager is created: there is none by business decision. The role remains in the
+ * codebase so one can be appointed later by creating the account (CLAUDE.md).
+ */
 const USERS: SeedUser[] = [
-  { name: "Super Admin", email: "super.admin@proitbridge.local", mobile: "9000000000", role: Role.SUPER_ADMIN },
-  { name: "Mathiew", email: "mathiew@proitbridge.local", mobile: "9000000001", role: Role.SALESPERSON },
-  { name: "Kevin", email: "kevin@proitbridge.local", mobile: "9000000002", role: Role.SALESPERSON },
-  { name: "Dinesh", email: "dinesh@proitbridge.local", mobile: "9000000003", role: Role.SALESPERSON },
-  { name: "Hari", email: "hari@proitbridge.local", mobile: "9000000004", role: Role.SALESPERSON },
-  { name: "Sales Manager", email: "sales.manager@proitbridge.local", mobile: "9000000005", role: Role.SALES_MANAGER },
-  { name: "Nandhiya", email: "nandhiya@proitbridge.local", mobile: "9000000006", role: Role.DATA_MGMT_AUDITOR },
-  { name: "Rajesh", email: "rajesh@proitbridge.local", mobile: "9000000007", role: Role.FINANCE_REVIEWER },
+  // Primary Super Admin first, so every later account records created_by.
+  { name: "Naveenkumar", email: "naveenkumar_10033@proitbridge.com", mobile: "9000000001", role: Role.SUPER_ADMIN },
+  { name: "AI Coach John", email: "aicoachjohn@proitbridge.com", mobile: "9000000002", role: Role.SUPER_ADMIN, breakGlass: true },
+
+  { name: "Mathiew", email: "mathiew_10003h@proitbridge.com", mobile: "9000000003", role: Role.SALESPERSON },
+  { name: "Dineshkumar", email: "dineshkumar_10022@proitbridge.com", mobile: "9000000004", role: Role.SALESPERSON },
+  { name: "Kevin Louis", email: "kevinlouis_10008g@proitbridge.com", mobile: "9000000005", role: Role.SALESPERSON },
+  { name: "Hariprasath", email: "hariprasath_10028@proitbridge.com", mobile: "9000000006", role: Role.SALESPERSON },
+
+  { name: "Nandhiya", email: "nandhiya_10042@proitbridge.com", mobile: "9000000007", role: Role.DATA_MGMT_AUDITOR },
+
+  { name: "Rajesh", email: "rajesh_10002p@proitbridge.com", mobile: "9000000008", role: Role.FINANCE_REVIEWER },
 ];
 
-async function seedUsers(): Promise<string> {
-  // Super Admin first so the rest can record created_by.
-  const superAdminSpec = USERS[0];
-  const superAdmin = await prisma.user.upsert({
-    where: { email: superAdminSpec.email },
-    update: {},
-    create: {
-      name: superAdminSpec.name,
-      email: superAdminSpec.email,
-      mobile: superAdminSpec.mobile,
-      passwordHash: await hashPassword(SEED_PASSWORD),
-      role: superAdminSpec.role,
-      mustChangePassword: true,
-      twoFaEnabled: true, // mandatory for SUPER_ADMIN (FR-SEC-05)
-    },
-  });
+// Ambiguous glyphs are left out deliberately — these passwords get read off a screen and
+// typed by hand, where "l1I" and "O0" cost more support time than the entropy is worth.
+const UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const LOWER = "abcdefghijkmnpqrstuvwxyz";
+const DIGITS = "23456789";
+const SYMBOLS = "!@#$%&*?";
 
-  for (const u of USERS.slice(1)) {
-    const twoFaMandatory =
-      u.role === Role.DATA_MGMT_AUDITOR || u.role === Role.FINANCE_REVIEWER;
-    await prisma.user.upsert({
-      where: { email: u.email },
-      update: {},
-      create: {
+function pick(set: string): string {
+  return set[randomInt(set.length)];
+}
+
+/**
+ * A fresh 14-character password per account, from a CSPRNG (never Math.random).
+ *
+ * One character of every class the policy demands is included and then shuffled in, so a
+ * generated password can never fail `isPasswordStrong` and strand an account that nobody
+ * can sign into.
+ */
+function generatePassword(): string {
+  const all = UPPER + LOWER + DIGITS + SYMBOLS;
+  const chars = [pick(UPPER), pick(LOWER), pick(DIGITS), pick(SYMBOLS)];
+  while (chars.length < 14) chars.push(pick(all));
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
+interface IssuedCredential {
+  name: string;
+  email: string;
+  role: Role;
+  password: string;
+}
+
+async function seedUsers(): Promise<{ superAdminId: string; issued: IssuedCredential[]; existing: string[] }> {
+  const issued: IssuedCredential[] = [];
+  const existing: string[] = [];
+  let superAdminId = "";
+
+  for (const u of USERS) {
+    const found = await prisma.user.findUnique({ where: { email: u.email }, select: { id: true } });
+    if (found) {
+      // Never touch an account that already exists. Re-running the seed must not reset a
+      // password somebody has already chosen, nor print one that was not actually applied.
+      existing.push(u.email);
+      if (!superAdminId && u.role === Role.SUPER_ADMIN) superAdminId = found.id;
+      continue;
+    }
+
+    const password = generatePassword();
+    const created = await prisma.user.create({
+      data: {
         name: u.name,
         email: u.email,
         mobile: u.mobile,
-        passwordHash: await hashPassword(SEED_PASSWORD),
+        passwordHash: await hashPassword(password),
         role: u.role,
+        // Forces the /change-password step on first sign-in, so the printed password below
+        // survives exactly one login before the user replaces it with their own.
         mustChangePassword: true,
-        twoFaEnabled: twoFaMandatory,
-        createdBy: superAdmin.id,
+        isBreakGlass: u.breakGlass ?? false,
+        // Two-factor is OFF by business decision (SystemConfig two_fa_required_roles = []).
+        // This per-user flag OVERRIDES that config, so setting it true here would demand an
+        // emailed code — and with no mail provider configured that is a locked-out account
+        // on day one. Turn it on per user only once email delivery is proven.
+        twoFaEnabled: false,
+        createdBy: superAdminId || undefined,
       },
     });
+    if (!superAdminId && u.role === Role.SUPER_ADMIN) superAdminId = created.id;
+    issued.push({ name: u.name, email: u.email, role: u.role, password });
   }
 
-  return superAdmin.id;
+  if (!superAdminId) {
+    throw new Error("No Super Admin was seeded or found — the remaining seed data has nobody to attribute.");
+  }
+  return { superAdminId, issued, existing };
 }
 
 async function seedPricing(createdBy: string): Promise<void> {
@@ -144,7 +213,7 @@ async function main(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is not set. Run via `pnpm db:seed` so .env is loaded.");
   }
-  const superAdminId = await seedUsers();
+  const { superAdminId, issued, existing } = await seedUsers();
   await seedPricing(superAdminId);
   await seedSystemConfig(superAdminId);
 
@@ -154,8 +223,28 @@ async function main(): Promise<void> {
     prisma.systemConfig.count(),
   ]);
   console.log(
-    `Seed complete: ${users} users, ${pricing} pricing rows, ${config} system config keys.`,
+    `\nSeed complete: ${users} users, ${pricing} pricing rows, ${config} system config keys.`,
   );
+
+  if (existing.length > 0) {
+    console.log(`\nAlready existed, left untouched (password unchanged):`);
+    for (const email of existing) console.log(`  · ${email}`);
+  }
+
+  if (issued.length === 0) return;
+
+  // The only time these values are ever visible. Printed as a block so it can be captured
+  // in one go, then distributed to each person over a channel you trust — and not by
+  // forwarding this whole log, which would show everyone everyone else's password.
+  const width = Math.max(...issued.map((c) => c.email.length));
+  console.log(`\n${"─".repeat(width + 34)}`);
+  console.log("INITIAL PASSWORDS — shown once, never stored. Give each person their own.");
+  console.log("Each must be changed at first sign-in; the app forces it.");
+  console.log("─".repeat(width + 34));
+  for (const c of issued) {
+    console.log(`  ${c.email.padEnd(width)}   ${c.password}   (${c.role})`);
+  }
+  console.log(`${"─".repeat(width + 34)}\n`);
 }
 
 main()

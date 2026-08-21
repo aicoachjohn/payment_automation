@@ -21,8 +21,9 @@ import { customerPaymentHistory } from "@/server/services/finance";
 /**
  * Finance server actions. IMPORTANT (BR-18): none of these mutate payment data. The
  * only writes are to the FinanceQuery thread (FR-FIN-10) and the user's own digest
- * schedule (FR-FIN-26) — both separate from any Payment row. tests/integration asserts
- * this by enumerating every action here and checking payment rows are untouched.
+ * schedule (FR-FIN-26) — both separate from any Payment row. The integration test that
+ * enumerated every action here and proved payment rows were untouched has been removed, so
+ * adding an action to this file is now unchecked: keep it off payment data.
  */
 
 const financeQuery = withPermission("finance:query");

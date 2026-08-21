@@ -114,8 +114,16 @@ URL**, once:
 DIRECT_URL="<neon-direct-url>" DATABASE_URL="<neon-direct-url>" pnpm db:seed
 ```
 
-Seeded accounts are created with `must_change_password = true`. Set
-`SEED_DEFAULT_PASSWORD` to something you are willing to type once and change immediately.
+This creates the eight team accounts and prints a **one-time password for each** to your
+terminal. That printout is the only place those passwords ever exist — they are not written
+to a file and not stored anywhere but as a hash in the database. Capture it, give each person
+their own line over a channel you trust, and do not forward the whole block to everyone.
+
+Every account is created with `must_change_password = true`, so each password is good for
+exactly one sign-in before the app forces a replacement.
+
+Re-running the seed is safe: an account that already exists is left completely alone, and no
+password is reprinted or reset. To reset one afterwards, use Super Admin → User Management.
 
 ## 6. After the first deploy — check these four
 

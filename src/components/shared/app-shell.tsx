@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Role } from "@prisma/client";
+import { UserRound } from "lucide-react";
 import { LogoutButton } from "@/components/shared/logout-button";
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -59,12 +60,25 @@ export function AppShell({
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="hidden items-center gap-2 sm:flex">
+            {/* Identity doubles as the way into the profile, where the password lives. */}
+            <Link
+              href="/account"
+              title="My profile"
+              className="hidden items-center gap-2 rounded-md px-2 py-1 transition hover:bg-brand-blue-50 sm:flex dark:hover:bg-slate-800"
+            >
               <span className="font-medium text-brand-navy dark:text-slate-100">{user.name}</span>
               <span className="rounded-full bg-brand-blue-50 px-2 py-0.5 text-xs font-semibold text-brand-blue-600 dark:bg-slate-800 dark:text-brand-blue">
                 {ROLE_LABEL[user.role]}
               </span>
-            </span>
+            </Link>
+            {/* The name is hidden on a phone, so the profile needs its own target there. */}
+            <Link
+              href="/account"
+              aria-label="My profile"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-slate-600 transition hover:bg-brand-blue-50 hover:text-brand-navy sm:hidden dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <UserRound className="h-5 w-5" aria-hidden="true" />
+            </Link>
             <LogoutButton />
           </div>
         </div>

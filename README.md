@@ -15,8 +15,9 @@ is [`docs/FRD_v1.2.pdf`](./docs/FRD_v1.2.pdf); phase-by-phase build prompts are 
 ## Stack
 
 Next.js 15 (App Router, TypeScript strict) · PostgreSQL 16 + Prisma · Tailwind CSS +
-shadcn/ui · TanStack Table · Zod · next-safe-action · Vitest · Playwright · pnpm ·
-Docker Compose (Postgres + MinIO).
+shadcn/ui · TanStack Table · Zod · next-safe-action · pnpm ·
+Docker Compose (Postgres + MinIO). Hosted on Vercel with Neon Postgres and Vercel Blob —
+see `docs/VERCEL_DEPLOYMENT.md`.
 
 ## Getting started
 
@@ -38,8 +39,6 @@ Prisma schema, migrations and seed data arrive in **Phase 1** (`pnpm db:migrate`
 | `pnpm build` / `pnpm start` | Production build / serve |
 | `pnpm lint` | ESLint (`eslint-config-next`) |
 | `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm test` / `pnpm test:watch` | Vitest unit tests |
-| `pnpm test:e2e` | Playwright end-to-end tests |
 | `pnpm db:up` / `pnpm db:down` | Start / stop Docker Postgres + MinIO |
 | `pnpm db:migrate` / `pnpm db:seed` / `pnpm db:studio` | Prisma (Phase 1+) |
 
@@ -56,7 +55,6 @@ src/app/            role-grouped routes: (auth) (sales) (datamgmt) (finance) (su
 src/server/         db · services · auth · audit · money · storage · ocr · notifications · jobs
 src/components/     ui (shadcn) · shared
 src/lib/            zod schemas, constants, formatters
-tests/              unit (Vitest) · e2e (Playwright)
 prisma/             schema, migrations, seed (Phase 1+)
 docs/               FRD, build prompt pack, requirements index
 ```

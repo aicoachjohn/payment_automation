@@ -1,8 +1,12 @@
 /**
  * The FRD §2.2 Role-Based Access Control matrix, encoded as DATA (not scattered
  * if-statements). This module is the single source of truth for "who may do what",
- * enforced server-side on every request (FR-SEC-02/03, NFR-07). The matrix unit test
- * (tests/unit/permissions.test.ts) walks every cell and is the specification.
+ * enforced server-side on every request (FR-SEC-02/03, NFR-07). The matrix in CLAUDE.md is
+ * the specification; this file must match it cell for cell.
+ *
+ * The unit test that used to walk every cell and fail the build on a drift was removed along
+ * with the rest of the suite, so THIS FILE IS NOW THE ONLY GUARD. Read the invariants below
+ * before changing a single line — nothing else will catch a mistake here.
  *
  * Key invariants baked in here:
  *  - FINANCE_REVIEWER is read-only over PAYMENT DATA (BR-18): no permission anywhere lets

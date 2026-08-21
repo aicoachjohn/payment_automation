@@ -99,8 +99,9 @@ collected. Nothing hands itself over: every hop is submitted by a person (see ru
   BR-18's original "no write of any kind" is **relaxed by business decision** to exactly two
   capabilities, both outside payment data: `finance:query` (FR-FIN-10) and
   `handover:finance-decide` — the second-level sign-off, which moves a handover's stage and
-  nothing else. `tests/unit/permissions.test.ts` asserts those are the ONLY two, so a third
-  cannot appear unnoticed. Rajesh's decision does **not** filter his statement: a payment
+  nothing else. There must never be a third. The unit test that used to assert this and fail
+  the build has been removed, so `src/server/auth/permissions.ts` is now the only place this
+  is enforced — check it by hand whenever a Finance capability is touched. Rajesh's decision does **not** filter his statement: a payment
   counts from the moment Nandhiya approves it (BR-15), so collected money can never go
   missing from Finance's totals while a sign-off is pending.
 - **Two-factor is OFF by business decision — everyone signs in with a password alone.**
@@ -238,7 +239,7 @@ src/server/jobs/        background scheduled jobs
 src/components/ui/      shadcn primitives
 src/components/shared/  app-wide composed components
 src/lib/                zod schemas, constants, formatters
-tests/unit/  tests/e2e/  docs/  prisma/
+docs/  prisma/
 ```
 
 ---
@@ -282,8 +283,14 @@ is mirrored automatically.
 ## Stack (fixed — do not substitute)
 
 Next.js 15 (App Router, TypeScript strict) · PostgreSQL 16 + Prisma · Tailwind CSS +
-shadcn/ui · TanStack Table · Zod · next-safe-action · Vitest (unit) · Playwright (e2e) ·
-pnpm · Docker Compose (Postgres + MinIO).
+shadcn/ui · TanStack Table · Zod · next-safe-action · pnpm ·
+Docker Compose (Postgres + MinIO) · Vercel + Neon + Vercel Blob in production.
+
+**There is no automated test suite.** It was removed by business decision. `pnpm lint`,
+`pnpm typecheck` and a successful `pnpm build` are the entire safety net, and none of them
+can tell you that a money calculation, a permission or a business rule is still correct.
+Every change to `src/server/money`, `src/server/auth/permissions.ts` or a service under
+`src/server/services` has to be reasoned through by hand against the twelve rules above.
 
 ### Common commands
 
@@ -291,8 +298,6 @@ pnpm · Docker Compose (Postgres + MinIO).
 pnpm dev          # start the app
 pnpm lint         # eslint
 pnpm typecheck    # tsc --noEmit
-pnpm test         # vitest unit tests
-pnpm test:e2e     # playwright e2e tests
 pnpm db:up        # docker: postgres + minio
 pnpm db:down      # docker: stop
 pnpm db:migrate   # prisma migrate dev   (Phase 1+)
