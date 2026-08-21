@@ -29,6 +29,25 @@ class LocalStorageProvider implements StorageProvider {
   readonly name = "local";
   private base = resolve(process.cwd(), process.env.PROOF_STORAGE_DIR ?? ".proof-storage");
 
+  /**
+   * This provider is the default, which makes it the one a misconfigured deployment falls
+   * back to — and on a serverless host that is the most dangerous outcome in the app: the
+   * write SUCCEEDS, the file lands on an instance that is about to disappear, and the proof
+   * is gone by the time anyone opens it. Nandhiya would then be auditing a payment against
+   * a proof that no longer exists (BR-15), with nothing to indicate anything went wrong.
+   *
+   * So refuse up front. A blocked upload with a clear message is recoverable; a silently
+   * lost payment proof is not.
+   */
+  private assertUsable(): void {
+    if (process.env.VERCEL) {
+      throw new Error(
+        "Proof storage is not configured for this deployment. Set STORAGE_PROVIDER=blob and " +
+          "connect a Blob store, otherwise uploaded proofs would be lost.",
+      );
+    }
+  }
+
   private path(key: string): string {
     // Keys are system-generated ("proofs/<uuid>"); reject traversal defensively.
     if (key.includes("..")) throw new Error("Invalid storage key.");
@@ -37,16 +56,19 @@ class LocalStorageProvider implements StorageProvider {
 
   async put(key: string, bytes: Uint8Array, _contentType: string): Promise<void> {
     void _contentType;
+    this.assertUsable();
     const p = this.path(key);
     await mkdir(dirname(p), { recursive: true });
     await writeFile(p, bytes);
   }
 
   async get(key: string): Promise<Uint8Array> {
+    this.assertUsable();
     return new Uint8Array(await readFile(this.path(key)));
   }
 
   async putJson(key: string, value: unknown): Promise<void> {
+    this.assertUsable();
     const p = this.path(key);
     await mkdir(dirname(p), { recursive: true });
     await writeFile(p, JSON.stringify(value));
