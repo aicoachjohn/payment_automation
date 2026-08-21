@@ -8,6 +8,11 @@
  * is stopped here.
  */
 import { PrismaClient } from "@prisma/client";
+import { normaliseDatabaseEnv } from "@/server/db/env";
+
+// Before the client reads DATABASE_URL. Hosting platforms rename these variables (see the
+// module for which and why), and Prisma would otherwise find nothing.
+normaliseDatabaseEnv();
 
 function appendOnlyError(): never {
   // Safe message (NFR-11): says what is wrong, leaks no internal detail.

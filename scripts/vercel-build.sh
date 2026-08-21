@@ -30,15 +30,35 @@ env | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | cut -d= -f1 |
   grep -Ei 'database|postgres|^pg|neon|_url$' | sort | sed 's/^/  seen: /' || true
 echo "  ---- $(env | grep -cE '^[A-Za-z_][A-Za-z0-9_]*=') variables in total ----"
 
+# A Vercel storage integration with a "Custom Environment Variable Prefix" renames every
+# variable it provides, so DATABASE_URL can arrive as e.g. myprefix_DATABASE_URL. Find the
+# first non-empty variable whose name ENDS WITH the one we want, anchored so that
+# _DATABASE_URL_UNPOOLED never satisfies a search for _DATABASE_URL.
+first_matching() {
+  env | grep -E "^[A-Za-z_][A-Za-z0-9_]*=." | cut -d= -f1 |
+    grep -E "(^|_)$1\$" | sort | head -1
+}
+
+if [ -z "${DATABASE_URL:-}" ]; then
+  found=$(first_matching DATABASE_URL || true)
+  if [ -n "$found" ]; then
+    eval "export DATABASE_URL=\$$found"
+    echo "  DATABASE_URL taken from $found"
+  fi
+fi
+
 DIRECT_URL_SOURCE="DIRECT_URL"
 if [ -z "${DIRECT_URL:-}" ]; then
   # First non-empty candidate wins. An explicitly set DIRECT_URL always takes precedence.
-  for name in DATABASE_URL_UNPOOLED POSTGRES_URL_NON_POOLING DATABASE_URL; do
-    eval "candidate=\${$name:-}"
-    if [ -n "$candidate" ]; then
-      export DIRECT_URL="$candidate"
-      DIRECT_URL_SOURCE="$name"
-      break
+  for pattern in DATABASE_URL_UNPOOLED POSTGRES_URL_NON_POOLING DATABASE_URL; do
+    found=$(first_matching "$pattern" || true)
+    if [ -n "$found" ]; then
+      eval "candidate=\$$found"
+      if [ -n "$candidate" ]; then
+        export DIRECT_URL="$candidate"
+        DIRECT_URL_SOURCE="$found"
+        break
+      fi
     fi
   done
 fi
