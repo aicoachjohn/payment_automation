@@ -19,6 +19,14 @@ for name in DATABASE_URL DIRECT_URL DATABASE_URL_UNPOOLED POSTGRES_URL_NON_POOLI
   [ -n "$value" ] && echo "  env: $name is set" || echo "  env: $name is EMPTY"
 done
 
+# Diagnostic: list every database-ish variable the build can actually see, by NAME only.
+# Values are never printed — connection strings carry credentials and build logs are
+# retained (FR-SEC-31). This distinguishes "the variable is missing" from "it is present
+# under a name we do not read", which the checks above cannot tell apart.
+echo "  ---- database-related variable names visible to this build ----"
+env | cut -d= -f1 | grep -Ei 'database|postgres|^pg|neon|_url$' | sort | sed 's/^/  seen: /' || true
+echo "  ---- $(env | wc -l | tr -d ' ') variables in total ----"
+
 DIRECT_URL_SOURCE="DIRECT_URL"
 if [ -z "${DIRECT_URL:-}" ]; then
   # First non-empty candidate wins. An explicitly set DIRECT_URL always takes precedence.
