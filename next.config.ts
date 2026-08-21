@@ -33,7 +33,9 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Standalone server output for the production Docker image (Phase 12 deployment).
-  output: "standalone",
+  // Vercel builds its own serverless output and does not want it, so ask for it only off
+  // Vercel — leaving it on there produces a second, unused copy of the whole server.
+  output: process.env.VERCEL ? undefined : "standalone",
   // Node-only OCR libs — leave them as runtime requires, never bundle them (they use
   // worker threads / WASM and dynamic requires that a bundler would break). OCR runs
   // server-side, so the browser CSP does not affect their model fetches.

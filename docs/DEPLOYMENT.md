@@ -4,6 +4,10 @@ Covers both hosting options from FRD Q-11 and the security obligations that diff
 between them. The application is a Next.js 15 standalone server + PostgreSQL 16 + a
 private object store for payment proofs.
 
+> **Deploying to Vercel instead?** See `VERCEL_DEPLOYMENT.md`. Serverless changes three
+> things that matter here — proof storage cannot use the filesystem, the database needs a
+> pooled connection, and the daily automation is driven by Vercel Cron.
+
 ## Build & run
 
 ```bash

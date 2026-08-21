@@ -2,10 +2,10 @@
   "name": "proitbridge",
   "version": "0.1.0",
   "private": true,
-  "description": "ProITbridge Payment & Enrollment Automation Platform — internal three-stage payment workflow (Sales → Data Management L1 audit → Finance).",
+  "description": "ProITbridge Payment & Enrollment Automation Platform \u2014 internal three-stage payment workflow (Sales \u2192 Data Management L1 audit \u2192 Finance).",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -18,7 +18,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "db:deploy": "prisma migrate deploy"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -26,6 +27,7 @@
   "dependencies": {
     "@prisma/client": "^6.7.0",
     "@tanstack/react-table": "^8.21.3",
+    "@vercel/blob": "^2.8.0",
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -60,5 +62,8 @@
     "typescript": "^5",
     "vitest": "^2.1.8"
   },
-  "packageManager": "pnpm@11.21.0"
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=20.9.0"
+  }
 }

@@ -5,8 +5,11 @@
  * /api/proofs route). Files are stored under system-generated keys; the original
  * filename is metadata only, never the path (FR-SEC-24).
  *
- * Default provider is the local filesystem (Docker/MinIO is not required for dev); an S3
- * provider stub carries the shape for Phase 12. No provider name leaks outside this dir.
+ * Default provider is the local filesystem (Docker/MinIO is not required for dev). Vercel
+ * Blob is the provider for the hosted deployment, because Vercel's filesystem is read-only
+ * apart from a per-instance /tmp — a proof written by one lambda is simply not there when
+ * the next one serves the read. An S3 provider stub carries the shape for a future move to
+ * a private bucket. No provider name leaks outside this dir.
  */
 import "server-only";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
@@ -58,6 +61,76 @@ class LocalStorageProvider implements StorageProvider {
   }
 }
 
+/**
+ * Vercel Blob provider (STORAGE_PROVIDER=blob) — the provider for the hosted deployment.
+ *
+ * Keys stay system-generated ("proofs/<uuid>") and are used verbatim as the blob pathname,
+ * so one key always resolves to exactly one object and a re-upload replaces it in place.
+ *
+ * Vercel Blob has no private-object mode: every object carries a public URL. That URL is
+ * unguessable (a random store host plus a UUID key), and — this is the part that matters —
+ * the app NEVER hands it to a browser. Proofs are streamed through /api/proofs behind the
+ * short-lived signed token and the usual role + record-ownership checks, exactly as they are
+ * on local disk, so FR-SEC-20..26 hold. Nothing outside this file ever sees a blob URL.
+ *
+ * The SDK is imported lazily so a machine with no Blob store (dev, CI, tests) never loads it.
+ */
+class BlobStorageProvider implements StorageProvider {
+  readonly name = "blob";
+
+  private token(): string {
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) {
+      throw new Error("Proof storage is not configured. Set BLOB_READ_WRITE_TOKEN.");
+    }
+    return token;
+  }
+
+  async put(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    const { put } = await import("@vercel/blob");
+    await put(key, Buffer.from(bytes), {
+      access: "public",
+      // The key is already an unguessable UUID; a suffix would make it unaddressable.
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType,
+      token: this.token(),
+    });
+  }
+
+  /**
+   * A key alone does not name a URL — the store's host is assigned by Vercel — so resolve it
+   * by prefix. An exact pathname match, never the first hit, so "proofs/ab" can never return
+   * "proofs/abc".
+   */
+  private async urlFor(key: string): Promise<string | null> {
+    const { list } = await import("@vercel/blob");
+    const { blobs } = await list({ prefix: key, limit: 1000, token: this.token() });
+    return blobs.find((b) => b.pathname === key)?.downloadUrl ?? null;
+  }
+
+  async get(key: string): Promise<Uint8Array> {
+    const url = await this.urlFor(key);
+    // Safe error (NFR-11): says what is wrong, leaks neither the key nor the blob URL.
+    if (!url) throw new Error("The stored file could not be found.");
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("The stored file could not be read.");
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  async putJson(key: string, value: unknown): Promise<void> {
+    await this.put(key, new TextEncoder().encode(JSON.stringify(value)), "application/json");
+  }
+
+  async getJson<T = unknown>(key: string): Promise<T | null> {
+    try {
+      return JSON.parse(new TextDecoder().decode(await this.get(key))) as T;
+    } catch {
+      return null;
+    }
+  }
+}
+
 /** S3 / MinIO provider — shape only; wired in Phase 12. Selected by STORAGE_PROVIDER=s3. */
 class S3StorageProvider implements StorageProvider {
   readonly name = "s3";
@@ -76,7 +149,16 @@ class S3StorageProvider implements StorageProvider {
 let provider: StorageProvider | null = null;
 export function getStorageProvider(): StorageProvider {
   if (provider) return provider;
-  provider = (process.env.STORAGE_PROVIDER ?? "local") === "s3" ? new S3StorageProvider() : new LocalStorageProvider();
+  switch (process.env.STORAGE_PROVIDER ?? "local") {
+    case "blob":
+      provider = new BlobStorageProvider();
+      break;
+    case "s3":
+      provider = new S3StorageProvider();
+      break;
+    default:
+      provider = new LocalStorageProvider();
+  }
   return provider;
 }
 
